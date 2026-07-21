@@ -51,8 +51,10 @@ pub fn parse_torrent_title(raw: &str) -> Option<ParsedTitle> {
 
     // Episode number — terminated by ], [, (, or end-of-string.
     // Covers:  - 01 [Tag],  - 01 (1080p),  [38][Tag],  - 01v2
+    // Note: prefix requires a dash (not bare whitespace) to avoid
+    // matching "Season 3 [...]" as episode=3.
     let ep_re =
-        regex::Regex::new(r"(?:[-–—\s]+|\[)(\d+(?:\.\d+)?)(?:v(\d+))?\s*(?:\]|\[|\(|$)").unwrap();
+        regex::Regex::new(r"(?:[-–—]+\s*|\[)(\d+(?:\.\d+)?)(?:v(\d+))?\s*(?:\]|\[|\(|$)").unwrap();
     let (episode, revision) = ep_re
         .captures(&right.clone().unwrap_or(left_clean.clone()))
         .map(|c| {
