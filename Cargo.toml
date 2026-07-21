@@ -1,0 +1,17 @@
+[package]
+name = "bangumi-rss"
+version = "0.1.0"
+edition = "2024"
+description = "Lightweight anime RSS auto-downloader — Rust single binary, <5 MB memory"
+
+[dependencies]
+ureq = { version = "2", features = ["json", "proxy-from-env"] }
+tiny_http = "0.12"
+crossbeam-channel = "0.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+anyhow = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+rss = "2"
+base64 = "0.22"

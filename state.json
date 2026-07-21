@@ -1,0 +1,17 @@
+{
+  "feeds": {
+    "c6dd3463-ef13-414e-ad70-f543e7f172d8": {
+      "id": "c6dd3463-ef13-414e-ad70-f543e7f172d8",
+      "url": "https://mikanani.kas.pub/RSS/Bangumi?bangumiId=4008&subgroupid=5",
+      "anime": {
+        "name": "葬送的芙莉莲",
+        "season": 3
+      },
+      "confirmed": true
+    }
+  },
+  "tracker": {},
+  "download_dir": "",
+  "library_dir": "",
+  "webhook_url": null
+}

@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>添加番剧订阅</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0
+        }
+
+        body {
+            font-family: system-ui, sans-serif;
+            max-width: 520px;
+            margin: 2em auto;
+            padding: 0 16px;
+            color: #222
+        }
+
+        h2 {
+            margin-bottom: .5em
+        }
+
+        .step {
+            margin: 1em 0;
+            padding: 1em;
+            background: #f5f5f5;
+            border-radius: 8px
+        }
+
+        .step.hidden {
+            display: none
+        }
+
+        input,
+        select,
+        button {
+            width: 100%;
+            padding: 10px;
+            margin: 6px 0;
+            font-size: 15px;
+            border-radius: 6px;
+            border: 1px solid #ccc
+        }
+
+        input:focus {
+            outline: 2px solid #4a90d9;
+            border-color: transparent
+        }
+
+        button {
+            background: #4a90d9;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            font-weight: 600
+        }
+
+        button:hover {
+            background: #357abd
+        }
+
+        button:disabled {
+            background: #a0c4e8;
+            cursor: wait
+        }
+
+        .tag {
+            display: inline-block;
+            background: #e8f0fe;
+            color: #1a73e8;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: .85em;
+            margin-right: 4px
+        }
+
+        .tag-ongoing {
+            background: #fff3e0;
+            color: #e65100
+        }
+
+        .label {
+            font-size: .85em;
+            color: #666;
+            margin-top: 8px;
+            display: block
+        }
+
+        .samples {
+            font-size: .8em;
+            color: #888;
+            max-height: 100px;
+            overflow-y: auto;
+            margin-top: 4px
+        }
+
+        .samples li {
+            list-style: none;
+            padding: 2px 0
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #e0e0e0;
+            border-top-color: #4a90d9;
+            border-radius: 50%;
+            animation: spin .8s linear infinite;
+            vertical-align: middle;
+            margin-right: 8px
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg)
+            }
+        }
+
+        .loading-box {
+            text-align: center;
+            padding: 24px;
+            color: #888;
+            font-size: .9em
+        }
+
+        .bgm-card {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            padding: 10px;
+            margin: 10px 0;
+            background: #fff;
+            border: 1px solid #e8e8e8;
+            border-radius: 8px
+        }
+
+        .bgm-card img {
+            width: 64px;
+            border-radius: 4px;
+            flex-shrink: 0
+        }
+
+        .bgm-card .info {
+            font-size: .85em;
+            line-height: 1.5
+        }
+
+        .bgm-card .info strong {
+            font-size: 1em;
+            display: block
+        }
+
+        .form-card {
+            padding: 10px;
+            margin: 10px 0;
+            background: #fff;
+            border: 1px solid #e8e8e8;
+            border-radius: 8px
+        }
+
+        #feeds li {
+            margin: 8px 0;
+            padding: 8px;
+            background: #fff;
+            border: 1px solid #eee;
+            border-radius: 6px;
+            display: flex;
+            gap: 10px;
+            align-items: flex-start
+        }
+
+        #feeds li img {
+            width: 60px;
+            height: auto;
+            border-radius: 4px;
+            flex-shrink: 0
+        }
+
+        .feed-info {
+            flex: 1;
+            min-width: 0
+        }
+
+        .feed-meta {
+            font-size: .8em;
+            color: #888;
+            margin-top: 2px
+        }
+
+        .rating {
+            color: #f5a623;
+            font-weight: 600
+        }
+    </style>
+</head>
+
+<body>
+    <h2>添加 RSS 订阅</h2>
+
+    <div id="step1" class="step">
+        <span class="label">输入 RSS 链接</span>
+        <input id="url" type="url" placeholder="https://mikanani.me/RSS/Classic/...">
+        <button id="previewBtn" onclick="previewFeed()">获取番剧信息</button>
+    </div>
+
+    <div id="step2" class="step hidden">
+        <span class="label">确认番剧信息</span>
+        <div id="previewInfo"></div>
+        <button onclick="confirmFeed()">确认订阅</button>
+    </div>
+
+    <div id="result" class="step hidden"></div>
+
+    <h3 style="margin-top:1.5em">已订阅 <button onclick="loadFeeds()"
+            style="width:auto;padding:4px 12px;font-size:13px">刷新</button></h3>
+    <ul id="feeds"></ul>
+
+    <h3 style="margin-top:1.5em">下载进度 <button onclick="refreshAndLoad()"
+            style="width:auto;padding:4px 12px;font-size:13px">刷新</button></h3>
+    <div id="downloads"></div>
+    <script>
+        let pendingUrl = '';
+
+        async function previewFeed() {
+            const url = document.getElementById('url').value.trim();
+            if (!url) return;
+            pendingUrl = url;
+            const step2 = document.getElementById('step2');
+            const result = document.getElementById('result');
+            const btn = document.getElementById('previewBtn');
+            step2.classList.add('hidden');
+            result.classList.add('hidden');
+
+            // Show loading
+            step2.classList.remove('hidden');
+            document.getElementById('previewInfo').innerHTML =
+                '<div class="loading-box"><span class="spinner"></span>正在获取番剧信息…</div>';
+
+            btn.disabled = true;
+            try {
+                const resp = await fetch('/api/feeds/preview', { method: 'POST', body: url });
+                const data = await resp.json();
+                renderPreview(data);
+            } catch (e) {
+                document.getElementById('previewInfo').innerHTML =
+                    `<p style="color:red">❌ 请求失败: ${e.message}</p>`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function renderPreview(data) {
+            const bgm = data.bangumi_info || {};
+            const info = document.getElementById('previewInfo');
+            info.innerHTML = '';
+
+            // Bangumi card
+            if (bgm.name_cn) {
+                const weekday = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+                const card = document.createElement('div');
+                card.className = 'bgm-card';
+                card.innerHTML = `
+      ${bgm.image_url ? `<img src="${bgm.image_url}" onerror="this.style.display='none'">` : ''}
+      <div class="info">
+        <strong>${bgm.name_cn}</strong>
+        ${bgm.rank ? `<span class="tag">#${bgm.rank}</span>` : ''}
+        <span class="rating">${bgm.rating ? '★ ' + bgm.rating.toFixed(1) : ''}</span>
+        <span class="tag">${bgm.air_date || ''}${bgm.air_weekday ? ' ' + weekday[bgm.air_weekday] : ''}</span>
+        <span class="tag tag-ongoing">${bgm.eps_count ? bgm.eps_count + ' 集' : '未完结'}</span>
+        ${bgm.summary ? `<div class="feed-meta">${bgm.summary}</div>` : ''}
+      </div>`;
+                info.appendChild(card);
+            }
+
+            // Form card
+            const form = document.createElement('div');
+            form.className = 'form-card';
+            form.innerHTML = `
+    <p><span class="tag">${data.group || '-'}</span></p>
+    <label class="label">番剧名</label>
+    <input id="animeName" value="${data.suggested_name || ''}">
+    <label class="label">季数</label>
+    <select id="season">
+      ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(s => `<option ${s == data.suggested_season ? 'selected' : ''}>S${s}</option>`).join('')}
+    </select>
+    ${data.latest_episode ? `<p class="label">最新集: 第 ${data.latest_episode} 集</p>` : ''}
+    ${data.sample_titles.length ? `<p class="label">样本标题:</p><ul class="samples">${data.sample_titles.map(t => `<li>${t}</li>`).join('')}</ul>` : ''}
+  `;
+            info.appendChild(form);
+
+            window._bangumiInfo = data.bangumi_info || null;
+        }
+
+        async function confirmFeed() {
+            const name = document.getElementById('animeName').value;
+            const season = parseInt(document.getElementById('season').value.replace('S', ''));
+            const body = JSON.stringify({ url: pendingUrl, name, season, bangumi_info: window._bangumiInfo });
+            const resp = await fetch('/api/feeds/confirm', { method: 'POST', body });
+            const data = await resp.json();
+            document.getElementById('result').classList.remove('hidden');
+            document.getElementById('result').innerHTML = data.success
+                ? `<p style="color:green">✅ 订阅成功</p><p class="label">Feed ID: ${data.message}</p>`
+                : `<p style="color:red">❌ 订阅失败: ${data.message}</p>`;
+            loadFeeds();
+            loadDownloads();
+        }
+
+        async function loadFeeds() {
+            const resp = await fetch('/api/feeds');
+            const feeds = await resp.json();
+            document.getElementById('feeds').innerHTML = feeds
+                .map(f => {
+                    const img = f.bangumi_info
+                        ? `<img src="${f.bangumi_info.image_url}" alt="${f.name}" onerror="this.style.display='none'">`
+                        : '';
+                    const rating = f.bangumi_info && f.bangumi_info.rating
+                        ? `<span class="rating">★ ${f.bangumi_info.rating.toFixed(1)}</span>`
+                        : '';
+                    const eps = f.bangumi_info
+                        ? (f.bangumi_info.eps_count ? ` · ${f.bangumi_info.eps_count} 集` : ' · 未完结')
+                        : '';
+                    const summary = f.bangumi_info && f.bangumi_info.summary
+                        ? `<div class="feed-meta">${f.bangumi_info.summary}</div>`
+                        : '';
+                    return `<li>${img}<div class="feed-info"><strong>${f.name}</strong> (S${f.season}) ${rating}<div class="feed-meta">${f.url}${eps}</div>${summary}</div></li>`;
+                })
+                .join('');
+        }
+
+        async function refreshAndLoad() {
+            await fetch('/api/downloads/refresh', { method: 'POST' });
+            loadDownloads();
+        }
+
+        async function loadDownloads() {
+            const resp = await fetch('/api/downloads');
+            const data = await resp.json();
+            const el = document.getElementById('downloads');
+            if (!data.length) {
+                el.innerHTML = '<p class="label">暂无下载任务</p>';
+                return;
+            }
+            el.innerHTML = data.map(d => {
+                const pct = (d.progress * 100).toFixed(1);
+                const speed = d.speed > 0 ? (d.speed / 1048576).toFixed(1) + ' MB/s' : '—';
+                const size = (d.size / 1073741824).toFixed(1) + ' GB';
+                const bar = `<div style="background:#e0e0e0;border-radius:4px;height:8px;margin:4px 0"><div style="background:#4a90d9;width:${pct}%;height:100%;border-radius:4px"></div></div>`;
+                return `<div style="margin:8px 0;padding:8px;background:#fff;border:1px solid #eee;border-radius:6px">
+      <strong>${d.feed_name || d.name}</strong>
+      <span class="tag">${d.state}</span>
+      <span class="tag">S${d.season}</span>
+      ${bar}
+      <span class="label">${pct}% · ${speed} · ${size}</span>
+    </div>`;
+            }).join('');
+        }
+        loadFeeds();
+    </script>
+</body>
+
+</html>
