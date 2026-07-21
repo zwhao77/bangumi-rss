@@ -1,6 +1,7 @@
 //! RSS feed fetcher — uses the `rss` crate for robust XML parsing.
 
-use crate::traits::{RssFetcher, RssItem, RssPreview};
+use crate::traits::RssFetcher;
+use crate::types::{RssItem, RssPreview};
 
 /// Concrete RSS client backed by `ureq` + `rss`.
 pub struct RssClient;
@@ -17,14 +18,9 @@ impl RssFetcher for RssClient {
                 .enclosure()
                 .map(|e| e.url().to_string())
                 .unwrap_or_default();
-            let homepage = item.link().map(String::from);
 
             if !title.is_empty() && !torrent_url.is_empty() {
-                items.push(RssItem {
-                    title,
-                    torrent_url,
-                    homepage,
-                });
+                items.push(RssItem { title, torrent_url });
             }
         }
         Ok(items)
@@ -81,7 +77,7 @@ mod tests {
 
         // Run tokenizer on samples.
         for title in &preview.item_titles {
-            if let Some(parsed) = crate::tokenizer::parse_torrent_title(title) {
+            if let Some(parsed) = crate::utils::tokenizer::parse_torrent_title(title) {
                 println!(
                     "parsed: name={:?} season={:?} ep={:?} group={:?}",
                     parsed.name, parsed.season, parsed.episode, parsed.group

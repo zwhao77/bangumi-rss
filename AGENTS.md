@@ -1,6 +1,6 @@
 # AGENTS.md — bangumi-rss
 
-> Anime RSS auto-downloader. Single Rust binary, ~5 MB memory, 38 tests (logic 11, handler 9, tokenizer 8, bangumi 5, downloader 3, timer 1, rss 1, executor 1).
+> Anime RSS auto-downloader. Single Rust binary, ~5 MB memory, 34 tests (logic 11, handler 9, tokenizer 8, bangumi 5, timer 1, rss 1, downloader 1, executor 1).
 
 ## Build & Run
 
@@ -28,6 +28,10 @@ docker run -p 7893:7893 -v /path/to/downloads:/downloads -v /path/to/anime:/anim
 | `DOWNLOAD_DIR` | — | Torrent download staging directory |
 | `LIBRARY_DIR` | — | Media library output directory |
 | `MOCK_DOWNLOADER` | — | Set to enable in‑memory mock downloader |
+| `DOWNLOADER` | `aria2` | `aria2` or `qbittorrent` |
+| `QBITTORRENT_URL` | `http://localhost:8080` | qBittorrent Web UI base URL |
+| `QBITTORRENT_USER` | `admin` | qBittorrent username |
+| `QBITTORRENT_PASS` | `adminadmin` | qBittorrent password |
 
 ## Architecture: TEA (The Elm Architecture)
 
@@ -70,11 +74,12 @@ Event Sources (timers, server)
 | `traits.rs` | Service abstractions: `RssFetcher`, `TorrentDownloader`, `FileOps`, `Notifier`, `BangumiSearcher` |
 | `services/mod.rs` | `EffectExecutor<R,D,F,N,B>` — generic effect runner |
 | `services/rss.rs` | `RssClient` — ureq-based XML RSS parser + `fetch_preview` (1 test) |
-| `services/downloader.rs` | `Aria2Downloader` — JSON-RPC client with infohash→GID cache (3 tests) |
-| `services/mock.rs` | `MockDownloader`, `MockRssClient`, `MockFileSystem` |
+| `services/downloader.rs` | `Aria2Downloader` — stateless JSON-RPC client, paginated gid lookup (1 test) |
+| `services/qbittorrent.rs` | `QbittorrentDownloader` — Web API client with SID cookie auth |
+| `services/mock.rs` | `MockDownloader`, `MockRssClient`, `MockFileSystem` (all use `Mutex` for thread safety) |
 | `services/fs.rs` | `RealFileSystem` — thin `std::fs` wrapper |
 | `services/notify.rs` | `NoopNotifier` (Server酱 TODO) |
-| `services/bangumi.rs` | `NoopBangumi` / `BangumiClient` — old API (no-auth), serde-deserialized (5 tests) |
+| `services/bangumi.rs` | `bangumi::search()`, `bangumi::detail()` — old API (no-auth), serde-deserialized (5 tests) |
 | `util.rs` | Pure helpers for server: `fetch_feed_preview()` (RSS + tokenizer + Bangumi) |
 | `confirm.html` | Web UI template — loaded via `include_str!` |
 

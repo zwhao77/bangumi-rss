@@ -8,22 +8,24 @@
 pub struct ParsedTitle {
     pub group: Option<String>,
     pub name: Option<String>,    // Chinese / original name
-    #[allow(dead_code)]
     pub name_jp: Option<String>, // Japanese / romaji name (after "/")
     pub season: Option<u8>,
     pub episode: Option<f32>,
-    #[allow(dead_code)]
     pub revision: Option<u8>, // v2 revision
 }
 
 pub fn parse_torrent_title(raw: &str) -> Option<ParsedTitle> {
-    // [Group]
-    let group_re = regex::Regex::new(r"^\[([^\]]+)\]").unwrap();
+    // [Group] or 【Group】
+    let group_re = regex::Regex::new(r"^[\[【]([^\]】]+)[\]】]").unwrap();
     let mut rest = raw.to_string();
-    let group = group_re.captures(&raw).map(|c| {
+    let group = group_re.captures(raw).map(|c| {
         rest = rest[c[0].len()..].trim().to_string();
         c[1].to_string()
     });
+
+    // Strip ★...★ metadata blocks (e.g. ★07月新番★)
+    let star_re = regex::Regex::new(r"★[^★]+★\s*").unwrap();
+    rest = star_re.replace_all(&rest, "").to_string();
 
     // Split by "/" — left is Chinese, right is Japanese/romaji
     let (left, right) = if let Some(pos) = rest.find(" / ") {
@@ -61,28 +63,28 @@ pub fn parse_torrent_title(raw: &str) -> Option<ParsedTitle> {
         .unwrap_or((None, None));
 
     // Clean name: remove season/episode/tag remnants
-    let mut name = strip_tags(&left_clean);
+    let mut name = strip_tags(&clean_bracket_remnants(&left_clean));
     // If episode was extracted from the name itself (no / split),
     // strip trailing " - NN" or " NN" from the name.
-    if right.is_none() {
-        if let Some(ep) = episode {
-            let ep_u = ep as u32;
-            // Try both padded ("02") and unpadded ("2") forms.
-            for suffix in [
-                format!(" - {ep_u}"),
-                format!(" - {ep_u:02}"),
-                format!(" {ep_u}"),
-                format!(" {ep_u:02}"),
-            ] {
-                if let Some(pos) = name.rfind(&suffix) {
-                    name = name[..pos].to_string();
-                    break;
-                }
+    if right.is_none()
+        && let Some(ep) = episode
+    {
+        let ep_u = ep as u32;
+        // Try both padded ("02") and unpadded ("2") forms.
+        for suffix in [
+            format!(" - {ep_u}"),
+            format!(" - {ep_u:02}"),
+            format!(" {ep_u}"),
+            format!(" {ep_u:02}"),
+        ] {
+            if let Some(pos) = name.rfind(&suffix) {
+                name = name[..pos].to_string();
+                break;
             }
         }
     }
     let name = name.trim().to_string();
-    let name_jp = right.map(|r| strip_tags(r.trim()));
+    let name_jp = right.map(|r| clean_bracket_remnants(&strip_tags(r.trim())));
 
     Some(ParsedTitle {
         group,
@@ -95,9 +97,16 @@ pub fn parse_torrent_title(raw: &str) -> Option<ParsedTitle> {
 }
 
 fn strip_tags(s: &str) -> String {
-    // Remove bracketed tags and parenthesized tags
-    let re = regex::Regex::new(r"\[[^\]]+\]|\([^)]*\)$").unwrap();
+    // Remove bracketed tags: [...], 【...】, (...) at end
+    let re = regex::Regex::new(r"\[[^\]]+\]|【[^】]+】|\([^)]*\)$").unwrap();
     re.replace_all(s, "").trim().to_string()
+}
+
+/// Strip leading `[` and trailing `]` remnants from partial bracket splits.
+fn clean_bracket_remnants(s: &str) -> String {
+    let s = s.strip_prefix('[').unwrap_or(s);
+    let s = s.strip_suffix(']').unwrap_or(s);
+    s.trim().to_string()
 }
 
 fn parse_cn_number(s: &str) -> Option<u8> {
@@ -123,31 +132,29 @@ pub fn is_batch_title(title: &str) -> bool {
     re.is_match(title)
 }
 
-// ── Standalone extractors ──
-
-/// Extract the clean anime title from a torrent filename.
-pub fn extract_title(raw: &str) -> Option<String> {
-    parse_torrent_title(raw).and_then(|p| p.name)
-}
-
-/// Extract the subtitle group from a torrent filename.
-pub fn extract_group(raw: &str) -> Option<String> {
-    parse_torrent_title(raw).and_then(|p| p.group)
-}
-
-/// Extract the season number from a torrent filename.
-pub fn extract_season(raw: &str) -> Option<u8> {
-    parse_torrent_title(raw).and_then(|p| p.season)
-}
-
-/// Extract the episode number from a torrent filename.
-pub fn extract_episode(raw: &str) -> Option<f32> {
-    parse_torrent_title(raw).and_then(|p| p.episode)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Standalone extractors (used by tests only) ──
+
+    fn extract_title(raw: &str) -> Option<String> {
+        parse_torrent_title(raw).and_then(|p| p.name)
+    }
+
+    fn extract_group(raw: &str) -> Option<String> {
+        parse_torrent_title(raw).and_then(|p| p.group)
+    }
+
+    fn extract_season(raw: &str) -> Option<u8> {
+        parse_torrent_title(raw).and_then(|p| p.season)
+    }
+
+    fn extract_episode(raw: &str) -> Option<f32> {
+        parse_torrent_title(raw).and_then(|p| p.episode)
+    }
+
+    // ── Tests ──
 
     #[test]
     fn test_mikan_style() {
@@ -176,6 +183,16 @@ mod tests {
         assert_eq!(p.group.as_deref(), Some("ANi"));
         assert_eq!(p.name.as_deref(), Some("花织即使是转生也想打架"));
         assert_eq!(p.episode, Some(2.0));
+    }
+
+    #[test]
+    fn test_mikan_fullwidth_group() {
+        let p = parse_torrent_title(
+            "【喵萌奶茶屋】★07月新番★[相反的你和我 / Seihantai na Kimi to Boku][13][1080p][繁日双语]",
+        )
+        .unwrap();
+        assert_eq!(p.group.as_deref(), Some("喵萌奶茶屋"));
+        assert!(p.name.as_deref().unwrap().contains("相反的你和我"));
     }
 
     #[test]

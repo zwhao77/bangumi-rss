@@ -3,12 +3,12 @@
 //! Every function takes `&AppState` + an `Event` and returns
 //! `(AppState, Vec<Effect>)`.  The caller owns and replaces the state.
 
-use crate::effect::Effect;
-use crate::event::{ApiResponse, DownloadStatus, Event, FeedInfo};
-use crate::state::{AppState, Feed};
+use crate::core::effect::Effect;
+use crate::core::event::{DownloadStatus, Event};
+use crate::core::state::{AppState, Feed};
 use crate::types::{
-    AnimeIdentity, BangumiInfo, DownloadInfo, DownloadSnapshot, EpisodeKey, EpisodeRecord,
-    RecordStatus,
+    AnimeIdentity, ApiResponse, BangumiInfo, DownloadInfo, DownloadSnapshot, EpisodeKey,
+    EpisodeRecord, FeedInfo, RecordStatus, RssItem,
 };
 use uuid::Uuid;
 
@@ -94,7 +94,7 @@ fn reduce_rss_tick(state: &AppState, feed_id: Uuid) -> Vec<Effect> {
 fn reduce_rss_items_fetched(
     state: &AppState,
     feed_id: Uuid,
-    items: Vec<crate::traits::RssItem>,
+    items: Vec<RssItem>,
     download_dir: &str,
 ) -> (AppState, Vec<Effect>) {
     let mut new_state = state.clone();
@@ -105,7 +105,7 @@ fn reduce_rss_items_fetched(
             continue;
         }
         // Reject batch torrents (e.g. "01-12").
-        if crate::tokenizer::is_batch_title(&item.title) {
+        if crate::utils::tokenizer::is_batch_title(&item.title) {
             println!(
                 "[logic] skip batch: {}",
                 &item.title[..item.title.len().min(80)]
@@ -369,7 +369,7 @@ fn reduce_downloads_refreshed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::DownloadStatus;
+    use crate::core::event::DownloadStatus;
 
     fn empty_state() -> AppState {
         AppState::default()

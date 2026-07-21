@@ -6,10 +6,10 @@
 
 use std::sync::Mutex;
 
-use crate::traits::{
-    CompletedDownload, RssFetcher, RssItem, RssPreview, TorrentDownloader, TorrentFile,
+use crate::traits::{RssFetcher, TorrentDownloader};
+use crate::types::{
+    CompletedDownload, DownloadSnapshot, DownloadState, RssItem, RssPreview, TorrentFile,
 };
-use crate::types::{DownloadSnapshot, DownloadState};
 
 // ── Mock downloader ──
 
@@ -44,7 +44,7 @@ impl TorrentDownloader for MockDownloader {
         *counter += 1;
         let infohash = format!("MOCK{:08X}", *counter);
 
-        let name = uri.split('/').last().unwrap_or(uri).to_string();
+        let name = uri.split('/').next_back().unwrap_or(uri).to_string();
 
         self.tasks.lock().unwrap().push(MockTask {
             infohash: infohash.clone(),
@@ -69,7 +69,6 @@ impl TorrentDownloader for MockDownloader {
 
         Ok(vec![TorrentFile {
             name: format!("[MockSubs] {} - 01 [1080p].mkv", task.name),
-            size: 500_000_000,
         }])
     }
 
@@ -121,7 +120,7 @@ impl TorrentDownloader for MockDownloader {
                 };
 
                 let speed = if progress < 1.0 && progress > 0.0 {
-                    ((seed % 8_000_000) + 500_000) as u64
+                    (seed % 8_000_000) + 500_000
                 } else {
                     0
                 };
@@ -153,7 +152,6 @@ impl RssFetcher for MockRssClient {
                 "https://mock.example/{}/ep38.torrent",
                 url.replace('/', "_")
             ),
-            homepage: None,
         }])
     }
 
@@ -178,7 +176,6 @@ use std::path::{Path, PathBuf};
 use crate::traits::FileOps;
 
 /// Fake file system — tracks created dirs and moved files in memory.
-#[allow(dead_code)]
 pub struct MockFileSystem {
     dirs: Mutex<HashSet<PathBuf>>,
     moves: Mutex<Vec<(PathBuf, PathBuf)>>,
@@ -186,7 +183,6 @@ pub struct MockFileSystem {
 }
 
 impl MockFileSystem {
-    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             dirs: Mutex::new(HashSet::new()),
@@ -195,7 +191,6 @@ impl MockFileSystem {
         }
     }
 
-    #[allow(dead_code)]
     pub fn move_count(&self) -> usize {
         self.moves.lock().unwrap().len()
     }

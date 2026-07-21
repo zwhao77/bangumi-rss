@@ -15,3 +15,6 @@ anyhow = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 rss = "2"
 base64 = "0.22"
+
+[dev-dependencies]
+tempfile = "3"

@@ -15,8 +15,8 @@ use std::sync::Arc;
 use crossbeam_channel::{Receiver, Sender};
 use uuid::Uuid;
 
-use crate::effect::Effect;
-use crate::event::Event;
+use crate::core::effect::Effect;
+use crate::core::event::Event;
 use crate::traits::{FileOps, Notifier, RssFetcher, TorrentDownloader};
 use crate::types::AnimeIdentity;
 
@@ -31,6 +31,8 @@ pub struct EffectExecutor<R: ?Sized, D: ?Sized, F, N> {
     pub fs: Arc<F>,
     pub notifier: Arc<N>,
     pub event_tx: Sender<Event>,
+    /// For self-call patterns: spawned threads feed effects back to this executor.
+    pub effect_tx: Sender<Effect>,
 }
 
 impl<R: ?Sized, D: ?Sized, F, N> EffectExecutor<R, D, F, N>
@@ -78,6 +80,12 @@ where
                 &download_dir,
                 expected_episode,
             ),
+            Effect::AddTorrentBytes {
+                data,
+                save_path,
+                feed_id,
+                torrent_url,
+            } => self.do_add_torrent_bytes(&data, &save_path, feed_id, &torrent_url),
             Effect::Notify { title, body } => self.do_notify(&title, &body),
             Effect::QueryAllDownloads => self.do_query_all(),
             Effect::PollCompleted => self.do_poll_completed(),
@@ -115,42 +123,39 @@ where
         let is_torrent = uri.ends_with(".torrent") || uri.contains(".torrent?");
 
         if is_torrent {
-            let downloader = self.downloader.clone();
-            let event_tx = self.event_tx.clone();
+            // Spawn a thread for HTTP download only — it does NOT touch the downloader.
+            // When done, it feeds AddTorrentBytes back via the effect channel.
+            let effect_tx = self.effect_tx.clone();
             let uri = uri.to_string();
             let dir = dir.to_string();
 
             std::thread::spawn(move || {
-                let result = (|| -> anyhow::Result<String> {
+                match (|| -> anyhow::Result<Vec<u8>> {
                     let resp = ureq::get(&uri).call()?;
                     let mut bytes: Vec<u8> = Vec::new();
                     resp.into_reader().read_to_end(&mut bytes)?;
-                    downloader.add_torrent_bytes(&bytes, &dir)
-                })();
-
-                match result {
-                    Ok(infohash) if !infohash.is_empty() => {
+                    Ok(bytes)
+                })() {
+                    Ok(bytes) => {
                         println!(
-                            "[executor] download started: infohash={infohash}, feed={feed_id}"
+                            "[executor] torrent downloaded: {} bytes, feed={feed_id}",
+                            bytes.len()
                         );
-                        event_tx
-                            .send(Event::DownloadStarted {
-                                infohash,
+                        effect_tx
+                            .send(Effect::AddTorrentBytes {
+                                data: bytes,
+                                save_path: dir,
                                 feed_id,
-                                torrent_url: uri.clone(),
+                                torrent_url: uri,
                             })
                             .ok();
                     }
-                    Ok(_) => {
-                        eprintln!(
-                            "[executor] add torrent returned empty infohash for feed={feed_id}"
-                        );
-                    }
                     Err(e) => {
-                        eprintln!("[executor] add torrent failed: {e}");
+                        eprintln!("[executor] torrent download failed: {e}");
                     }
                 }
             });
+            vec![]
         } else {
             match self.downloader.add_uri(uri, dir) {
                 Ok(infohash) => {
@@ -166,6 +171,38 @@ where
                 Err(e) => {
                     eprintln!("[executor] add torrent failed: {e}");
                 }
+            }
+            vec![]
+        }
+    }
+
+    fn do_add_torrent_bytes(
+        &self,
+        data: &[u8],
+        dir: &str,
+        feed_id: Uuid,
+        torrent_url: &str,
+    ) -> Vec<Effect> {
+        match self.downloader.add_torrent_bytes(data, dir) {
+            Ok(infohash) if !infohash.is_empty() => {
+                println!(
+                    "[executor] download started: infohash={infohash}, feed={feed_id}"
+                );
+                self.event_tx
+                    .send(Event::DownloadStarted {
+                        infohash,
+                        feed_id,
+                        torrent_url: torrent_url.to_string(),
+                    })
+                    .ok();
+            }
+            Ok(_) => {
+                eprintln!(
+                    "[executor] add_torrent_bytes returned empty infohash for feed={feed_id}"
+                );
+            }
+            Err(e) => {
+                eprintln!("[executor] add_torrent_bytes failed: {e}");
             }
         }
         vec![]
@@ -211,7 +248,8 @@ where
             status: crate::types::RecordStatus::Downloading,
             library_path: None,
         };
-        let resolved = crate::handler::resolve_files(&files, &record, download_dir, library_dir);
+        let resolved =
+            crate::utils::handler::resolve_files(&files, &record, download_dir, library_dir);
 
         let effects = Vec::new();
 
@@ -300,7 +338,7 @@ where
                     );
                     let _ = self.event_tx.send(Event::DownloaderNotification {
                         infohash: task.infohash,
-                        status: crate::event::DownloadStatus::Completed,
+                        status: crate::core::event::DownloadStatus::Completed,
                     });
                 }
             }
@@ -319,7 +357,7 @@ where
                 for task in tasks {
                     let _ = self.event_tx.send(Event::DownloaderNotification {
                         infohash: task.infohash,
-                        status: crate::event::DownloadStatus::Failed,
+                        status: crate::core::event::DownloadStatus::Failed,
                     });
                 }
             }
@@ -336,11 +374,11 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    use crate::effect::Effect;
-    use crate::event::Event;
-    use crate::services::mock::{MockDownloader, MockFileSystem};
+    use crate::core::effect::Effect;
+    use crate::core::event::Event;
+    use crate::core::state::AppState;
     use crate::services::NoopNotifier;
-    use crate::state::AppState;
+    use crate::services::mock::{MockDownloader, MockFileSystem};
     use crate::types::{AnimeIdentity, EpisodeKey, EpisodeRecord, RecordStatus};
 
     #[test]
@@ -359,9 +397,9 @@ mod tests {
 
         // The mock downloader's list_files returns "[MockSubs] test.torrent - 01 [1080p].mkv"
         // The source path is: /dl/test-feed/[MockSubs] test.torrent - 01 [1080p].mkv
-        let src = std::path::PathBuf::from(format!(
-            "/dl/test-feed/[MockSubs] test.torrent - 01 [1080p].mkv"
-        ));
+        let src = std::path::PathBuf::from(
+            "/dl/test-feed/[MockSubs] test.torrent - 01 [1080p].mkv".to_string(),
+        );
         fs.existing.lock().unwrap().insert(src);
 
         let executor = EffectExecutor {
@@ -370,6 +408,7 @@ mod tests {
             fs: fs.clone(),
             notifier,
             event_tx: event_tx.clone(),
+            effect_tx: effect_tx.clone(),
         };
 
         // ── populate tracker in AppState ──
@@ -378,12 +417,14 @@ mod tests {
             name: "葬送的芙莉莲".into(),
             season: 2,
         };
-        let mut state = AppState::default();
-        state.download_dir = "/dl".into();
-        state.library_dir = "/lib".into();
+        let mut state = AppState {
+            download_dir: "/dl".into(),
+            library_dir: "/lib".into(),
+            ..AppState::default()
+        };
         state.feeds.insert(
             feed_id,
-            crate::state::Feed {
+            crate::core::state::Feed {
                 id: feed_id,
                 url: "https://example.com/rss".into(),
                 anime: anime.clone(),

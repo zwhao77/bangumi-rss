@@ -5,6 +5,53 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+// ── API & Service-boundary types ──
+
+/// General-purpose API response.
+#[derive(Debug, serde::Serialize)]
+pub struct ApiResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+/// Feed list API DTO (returned to the web UI).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FeedInfo {
+    pub id: Uuid,
+    pub name: String,
+    pub url: String,
+    pub season: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bangumi_info: Option<BangumiInfo>,
+}
+
+/// An item parsed from an RSS feed.
+#[derive(Debug, Clone)]
+pub struct RssItem {
+    pub title: String,
+    pub torrent_url: String,
+}
+
+/// A file inside a completed torrent download.
+#[derive(Debug, Clone)]
+pub struct TorrentFile {
+    pub name: String,
+}
+
+/// A completed download task reported by the downloader.
+#[derive(Debug, Clone)]
+pub struct CompletedDownload {
+    pub infohash: String,
+}
+
+/// Lightweight RSS preview — channel title + sample item titles.
+#[derive(Debug, Clone)]
+pub struct RssPreview {
+    #[allow(dead_code)]
+    pub channel_title: String,
+    pub item_titles: Vec<String>,
+}
+
 // ── Anime & Episode identity ──
 
 /// Identifies an anime series uniquely.
@@ -108,38 +155,6 @@ pub struct BangumiInfo {
     /// Air weekday (1=Mon … 7=Sun).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub air_weekday: Option<u8>,
-}
-
-// ── Episode resolution ──
-
-/// A fully identified episode — executor fills this from `list_files` + `tokenizer`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct ResolvedEpisode {
-    #[allow(dead_code)]
-    pub feed_id: Uuid,
-    #[allow(dead_code)]
-    pub anime: AnimeIdentity,
-    pub episode: u32,
-    /// Normalised file name, e.g. "Oshi no Ko S01E01.mkv".
-    pub target_name: String,
-}
-
-impl ResolvedEpisode {
-    /// Absolute path inside the download staging directory.
-    #[allow(dead_code)]
-    pub fn download_path(&self, download_dir: &str) -> String {
-        format!("{}/{}/{}", download_dir, self.feed_id, self.target_name)
-    }
-
-    /// Absolute path inside the media library.
-    #[allow(dead_code)]
-    pub fn library_path(&self, library_dir: &str) -> String {
-        format!(
-            "{}/{}/S{:02}/{}",
-            library_dir, self.anime.name, self.anime.season, self.target_name
-        )
-    }
 }
 
 // ── Download state ──

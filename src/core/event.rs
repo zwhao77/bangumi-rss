@@ -1,10 +1,9 @@
 use crossbeam_channel::{Receiver, Sender};
 use uuid::Uuid;
 
-use crate::effect::Effect;
-use crate::state::AppState;
-use crate::traits::RssItem;
-use crate::types::BangumiInfo;
+use crate::core::effect::Effect;
+use crate::core::state::AppState;
+use crate::types::{ApiResponse, BangumiInfo, FeedInfo, RssItem};
 
 /// Events flow **inward** to the logic thread.
 #[derive(Debug)]
@@ -54,7 +53,6 @@ pub enum Event {
         url: String,
         name: String,
         season: u8,
-        #[allow(dead_code)]
         bangumi_info: Option<BangumiInfo>,
         reply_tx: crossbeam_channel::Sender<ApiResponse>,
     },
@@ -90,23 +88,6 @@ pub enum DownloadStatus {
     Failed,
 }
 
-#[derive(Debug, serde::Serialize)]
-pub struct ApiResponse {
-    pub success: bool,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct FeedInfo {
-    pub id: Uuid,
-    pub name: String,
-    pub url: String,
-    pub season: u8,
-    /// Bangumi metadata — present if fetched.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bangumi_info: Option<BangumiInfo>,
-}
-
 /// Logic thread entry-point: owns AppState, runs the pure reducer loop.
 /// State persistence happens here (only place with &AppState).
 pub fn run_logic(event_rx: Receiver<Event>, effect_tx: Sender<Effect>, mut state: AppState) {
@@ -114,7 +95,7 @@ pub fn run_logic(event_rx: Receiver<Event>, effect_tx: Sender<Effect>, mut state
 
     for event in event_rx {
         let prev = state.clone();
-        let (new_state, effects) = crate::logic::reduce(&state, event);
+        let (new_state, effects) = crate::core::logic::reduce(&state, event);
         state = new_state;
 
         // Persist only when state actually changed.

@@ -1,17 +1,18 @@
 {
   "feeds": {
-    "c6dd3463-ef13-414e-ad70-f543e7f172d8": {
-      "id": "c6dd3463-ef13-414e-ad70-f543e7f172d8",
-      "url": "https://mikanani.kas.pub/RSS/Bangumi?bangumiId=4008&subgroupid=5",
+    "66bb14a8-774f-4128-8260-02beda722eaf": {
+      "id": "66bb14a8-774f-4128-8260-02beda722eaf",
+      "url": "https://mikanani.kas.pub/RSS/Bangumi?bangumiId=4037&subgroupid=382",
       "anime": {
-        "name": "葬送的芙莉莲",
-        "season": 3
+        "name": "相反的你和我",
+        "season": 2
       },
       "confirmed": true
     }
   },
   "tracker": {},
-  "download_dir": "",
-  "library_dir": "",
+  "seen_urls": [],
+  "download_dir": "/tmp/aria2-live/downloads",
+  "library_dir": "/tmp/aria2-live/anime",
   "webhook_url": null
 }

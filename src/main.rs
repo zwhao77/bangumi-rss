@@ -1,16 +1,8 @@
-mod effect;
-mod event;
-mod feed;
-mod handler;
-mod logic;
-mod server;
+mod core;
 mod services;
-mod state;
-mod timer;
-mod tokenizer;
 mod traits;
 mod types;
-mod util;
+mod utils;
 
 use std::sync::Arc;
 use std::thread;
@@ -18,11 +10,12 @@ use std::time::Duration;
 
 use crossbeam_channel::bounded;
 
-use effect::Effect;
-use event::Event;
+use crate::core::effect::Effect;
+use crate::core::event::Event;
+use crate::core::state::AppState;
 use services::EffectExecutor;
-use state::AppState;
-use timer::TimerManager;
+use services::TimerManager;
+use services::start_server;
 
 const CHANNEL_CAPACITY: usize = 256;
 
@@ -56,6 +49,7 @@ fn main() -> anyhow::Result<()> {
 
     // ── services (trait objects behind Arc) ──
     let use_mock = std::env::var("MOCK_DOWNLOADER").is_ok();
+    let backend = std::env::var("DOWNLOADER").unwrap_or_else(|_| "aria2".into());
 
     let rss_client: Arc<dyn crate::traits::RssFetcher> = if use_mock {
         Arc::new(services::MockRssClient)
@@ -65,6 +59,8 @@ fn main() -> anyhow::Result<()> {
 
     let downloader: Arc<dyn crate::traits::TorrentDownloader> = if use_mock {
         Arc::new(services::MockDownloader::new())
+    } else if backend == "qbittorrent" {
+        Arc::new(services::QbittorrentDownloader::from_env())
     } else {
         Arc::new(services::Aria2Downloader::from_env())
     };
@@ -105,9 +101,12 @@ fn main() -> anyhow::Result<()> {
     }
     thread::spawn(move || tm.run());
 
-    // HTTP API server
+    // HTTP API server (logs on exit, but process continues)
     let tx = event_tx.clone();
-    thread::spawn(move || server::start(tx));
+    thread::spawn(move || {
+        start_server(tx);
+        eprintln!("[main] HTTP server thread exited");
+    });
 
     // ── effect executor (consumes effects, may publish DownloadStarted events) ──
     let executor = EffectExecutor {
@@ -116,13 +115,14 @@ fn main() -> anyhow::Result<()> {
         fs: fs_ops,
         notifier,
         event_tx: event_tx.clone(),
+        effect_tx: effect_tx.clone(),
     };
     let effect_tx_inner = effect_tx.clone();
     thread::spawn(move || executor.run(effect_rx, effect_tx_inner));
 
     // ── logic thread (owns AppState, runs pure reducer) ──
     let logic_handle = thread::spawn(move || {
-        event::run_logic(event_rx, effect_tx, state);
+        crate::core::event::run_logic(event_rx, effect_tx, state);
     });
 
     // ── main thread: wait for logic to exit, then clean up ──

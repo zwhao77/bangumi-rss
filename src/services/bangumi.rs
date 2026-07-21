@@ -1,4 +1,4 @@
-//! Bangumi / bgm.tv API client behind `BangumiSearcher` trait.
+//! Bangumi / bgm.tv API client — pure functions.
 //!
 //! Uses the legacy (no-auth) API:
 //! - Search: `GET /search/subject/{keyword}?responseGroup=medium&max_results=N`
@@ -8,15 +8,12 @@
 
 use serde::Deserialize;
 
-use crate::traits::BangumiSearcher;
 use crate::types::BangumiInfo;
-
-// ── User-Agent (follows https://bangumi.github.io/dev-docs/#user-agent) ──
 
 const UA: &str = "ezio/bangumi-rss";
 const BASE: &str = "https://api.bgm.tv";
 
-// ── Bangumi API response types ──
+// ── Response types ──
 
 #[derive(Debug, Deserialize)]
 struct BgmSearchResponse {
@@ -44,7 +41,6 @@ struct BgmSubjectResponse {
     air_date: String,
     #[serde(default)]
     images: Option<BgmImages>,
-    /// API error response: `{ "error": "..." }`
     #[serde(default)]
     error: Option<String>,
     #[serde(default)]
@@ -69,64 +65,21 @@ struct BgmImages {
 }
 
 impl BgmImages {
-    /// Best available cover URL: common → large → medium → small → grid → empty.
     fn best_url(&self) -> &str {
         self.common
             .as_deref()
-            .or_else(|| self.large.as_deref())
-            .or_else(|| self.medium.as_deref())
-            .or_else(|| self.small.as_deref())
-            .or_else(|| self.grid.as_deref())
+            .or(self.large.as_deref())
+            .or(self.medium.as_deref())
+            .or(self.small.as_deref())
+            .or(self.grid.as_deref())
             .unwrap_or("")
     }
 }
 
-// ── Noop ──
-
-/// No-op searcher — always returns `Ok(None)`.
-#[allow(dead_code)]
-pub struct NoopBangumi;
-
-impl BangumiSearcher for NoopBangumi {
-    fn search_subject_id(&self, _keyword: &str) -> anyhow::Result<Option<u32>> {
-        Ok(None)
-    }
-
-    fn get_subject_detail(&self, _subject_id: u32) -> anyhow::Result<Option<BangumiInfo>> {
-        Ok(None)
-    }
-}
-
-// ── Real client ──
-
-/// Real Bangumi API client with connection timeout.
-pub struct BangumiClient;
-
-impl BangumiSearcher for BangumiClient {
-    fn search_subject_id(&self, keyword: &str) -> anyhow::Result<Option<u32>> {
-        search_subject_id(keyword)
-    }
-
-    fn get_subject_detail(&self, subject_id: u32) -> anyhow::Result<Option<BangumiInfo>> {
-        get_subject_detail(subject_id)
-    }
-}
-
-// ── HTTP ──
-
-/// Create a GET request with connect (10s) and read (30s) timeouts.
-fn http_get(url: &str) -> anyhow::Result<ureq::Response> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(10))
-        .timeout_read(std::time::Duration::from_secs(30))
-        .build();
-    Ok(agent.get(url).set("User-Agent", UA).call()?)
-}
-
-// ── API calls ──
+// ── Public API ──
 
 /// Search Bangumi by keyword, return best-match subject ID.
-fn search_subject_id(keyword: &str) -> anyhow::Result<Option<u32>> {
+pub fn search(keyword: &str) -> anyhow::Result<Option<u32>> {
     let url = format!(
         "{}/search/subject/{}?responseGroup=medium&max_results=5",
         BASE,
@@ -140,15 +93,13 @@ fn search_subject_id(keyword: &str) -> anyhow::Result<Option<u32>> {
 }
 
 /// Fetch full metadata for a subject.
-fn get_subject_detail(subject_id: u32) -> anyhow::Result<Option<BangumiInfo>> {
+pub fn detail(subject_id: u32) -> anyhow::Result<Option<BangumiInfo>> {
     let url = format!("{}/subject/{}?responseGroup=large", BASE, subject_id);
     let resp: BgmSubjectResponse = http_get(&url)?.into_json()?;
 
     if resp.error.is_some() || (resp.name_cn.is_empty() && resp.name.is_empty()) {
         return Ok(None);
     }
-
-    let summary: String = resp.summary.chars().take(200).collect();
 
     let (rating, score_count) = match resp.rating {
         Some(r) => (r.score, r.total),
@@ -166,7 +117,7 @@ fn get_subject_detail(subject_id: u32) -> anyhow::Result<Option<BangumiInfo>> {
         bangumi_id: subject_id,
         name_cn: resp.name_cn,
         name: resp.name,
-        summary,
+        summary: resp.summary.chars().take(200).collect(),
         eps_count: resp.eps_count,
         rating,
         score_count,
@@ -177,7 +128,15 @@ fn get_subject_detail(subject_id: u32) -> anyhow::Result<Option<BangumiInfo>> {
     }))
 }
 
-// ── Helpers ──
+// ── Internal ──
+
+fn http_get(url: &str) -> anyhow::Result<ureq::Response> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .timeout_read(std::time::Duration::from_secs(30))
+        .build();
+    Ok(agent.get(url).set("User-Agent", UA).call()?)
+}
 
 fn url_encode(s: &str) -> String {
     let mut result = String::with_capacity(s.len() * 3);
@@ -192,8 +151,6 @@ fn url_encode(s: &str) -> String {
     }
     result
 }
-
-// ── Tests ──
 
 #[cfg(test)]
 mod tests {
@@ -221,7 +178,7 @@ mod tests {
             }"#,
         )
         .unwrap();
-        assert_eq!(images.best_url(), "http://example.com/c.jpg"); // common first
+        assert_eq!(images.best_url(), "http://example.com/c.jpg");
     }
 
     #[test]
@@ -234,19 +191,19 @@ mod tests {
             }"#,
         )
         .unwrap();
-        assert_eq!(images.best_url(), "http://example.com/l.jpg"); // fallback to large
+        assert_eq!(images.best_url(), "http://example.com/l.jpg");
     }
 
     #[test]
     fn test_best_url_only_grid() {
         let images: BgmImages =
             serde_json::from_str(r#"{"grid": "http://example.com/g.jpg"}"#).unwrap();
-        assert_eq!(images.best_url(), "http://example.com/g.jpg"); // last resort
+        assert_eq!(images.best_url(), "http://example.com/g.jpg");
     }
 
     #[test]
     fn test_best_url_empty() {
         let images: BgmImages = serde_json::from_str(r#"{}"#).unwrap();
-        assert_eq!(images.best_url(), ""); // nothing available
+        assert_eq!(images.best_url(), "");
     }
 }

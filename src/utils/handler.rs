@@ -5,9 +5,8 @@
 #[cfg(test)]
 use uuid::Uuid;
 
+use crate::types::{AnimeIdentity, EpisodeKey, EpisodeRecord, TorrentFile};
 use std::path::PathBuf;
-use crate::traits::TorrentFile;
-use crate::types::{AnimeIdentity, EpisodeKey, EpisodeRecord};
 
 /// Result of scanning a completed torrent's files.
 pub(crate) struct ResolvedFile {
@@ -29,7 +28,7 @@ pub(crate) struct ResolvedFile {
 ///
 /// Returns `None` if the title can't be parsed or the episode is 0.
 fn file_to_episode_key(file_name: &str, anime: &AnimeIdentity) -> Option<EpisodeKey> {
-    let parsed = crate::tokenizer::parse_torrent_title(file_name)?;
+    let parsed = crate::utils::tokenizer::parse_torrent_title(file_name)?;
     let episode = parsed.episode.unwrap_or(0.0) as u32;
     if episode == 0 {
         return None;
@@ -128,11 +127,10 @@ pub(crate) fn resolve_files(
 }
 
 /// Resolved file is an internal type — not exposed as a type.
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::traits::TorrentFile;
+    use crate::types::TorrentFile;
 
     fn anime() -> AnimeIdentity {
         AnimeIdentity {
@@ -146,15 +144,12 @@ mod tests {
         let files = vec![
             TorrentFile {
                 name: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
-                size: 0,
             },
             TorrentFile {
                 name: "[ANi] 葬送的芙莉莲 - 02 [1080P].mp4".into(),
-                size: 0,
             },
             TorrentFile {
                 name: "not-a-video.txt".into(),
-                size: 0,
             },
         ];
         let record = EpisodeRecord {
@@ -221,13 +216,15 @@ mod tests {
     fn resolve_expected_episode_overrides() {
         let files = vec![TorrentFile {
             name: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
-            size: 0,
         }];
         let record = EpisodeRecord {
             infohash: "DEADBEEF".into(),
             torrent_url: String::new(),
             feed_id: Uuid::nil(),
-            key: EpisodeKey { anime: anime(), episode: 3 },
+            key: EpisodeKey {
+                anime: anime(),
+                episode: 3,
+            },
             status: crate::types::RecordStatus::Downloading,
             library_path: None,
         };
@@ -243,7 +240,10 @@ mod tests {
             infohash: "DEADBEEF".into(),
             torrent_url: String::new(),
             feed_id: Uuid::nil(),
-            key: EpisodeKey { anime: anime(), episode: 0 },
+            key: EpisodeKey {
+                anime: anime(),
+                episode: 0,
+            },
             status: crate::types::RecordStatus::Downloading,
             library_path: None,
         };
@@ -255,13 +255,15 @@ mod tests {
     fn resolve_episode_zero_filtered() {
         let files = vec![TorrentFile {
             name: "[ANi] 葬送的芙莉莲 - 00 [1080P].mp4".into(),
-            size: 0,
         }];
         let record = EpisodeRecord {
             infohash: "DEADBEEF".into(),
             torrent_url: String::new(),
             feed_id: Uuid::nil(),
-            key: EpisodeKey { anime: anime(), episode: 0 },
+            key: EpisodeKey {
+                anime: anime(),
+                episode: 0,
+            },
             status: crate::types::RecordStatus::Downloading,
             library_path: None,
         };
@@ -272,14 +274,21 @@ mod tests {
     #[test]
     fn resolve_multi_file_second_uses_tokenizer() {
         let files = vec![
-            TorrentFile { name: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(), size: 0 },
-            TorrentFile { name: "[ANi] 葬送的芙莉莲 - 05 [1080P].mp4".into(), size: 0 },
+            TorrentFile {
+                name: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
+            },
+            TorrentFile {
+                name: "[ANi] 葬送的芙莉莲 - 05 [1080P].mp4".into(),
+            },
         ];
         let record = EpisodeRecord {
             infohash: "DEADBEEF".into(),
             torrent_url: String::new(),
             feed_id: Uuid::nil(),
-            key: EpisodeKey { anime: anime(), episode: 3 },
+            key: EpisodeKey {
+                anime: anime(),
+                episode: 3,
+            },
             status: crate::types::RecordStatus::Downloading,
             library_path: None,
         };

@@ -24,6 +24,14 @@ pub enum Effect {
         feed_id: Uuid,
     },
 
+    /// Feed raw .torrent bytes to the downloader (self-call from spawned HTTP fetcher).
+    AddTorrentBytes {
+        data: Vec<u8>,
+        save_path: String,
+        feed_id: Uuid,
+        torrent_url: String,
+    },
+
     /// Handle a completed download: list files, tokenize, rename, move.
     HandleCompleted {
         infohash: String,
@@ -70,6 +78,18 @@ impl fmt::Debug for Effect {
                 .field("torrent_url", torrent_url)
                 .field("save_path", save_path)
                 .field("feed_id", feed_id)
+                .finish(),
+            Self::AddTorrentBytes {
+                data,
+                save_path,
+                feed_id,
+                torrent_url,
+            } => f
+                .debug_struct("AddTorrentBytes")
+                .field("data_len", &data.len())
+                .field("save_path", save_path)
+                .field("feed_id", feed_id)
+                .field("torrent_url", torrent_url)
                 .finish(),
             Self::HandleCompleted {
                 infohash,

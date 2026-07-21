@@ -76,14 +76,6 @@ impl AppState {
         self
     }
 
-    /// Replace a feed entirely (e.g. to attach Bangumi metadata).
-    /// Replace a feed entirely (e.g. to attach Bangumi metadata).
-    #[allow(dead_code)]
-    pub fn with_feed_updated(mut self, id: Uuid, feed: Feed) -> Self {
-        self.feeds.insert(id, feed);
-        self
-    }
-
     /// Record that a download has started — insert or update tracker entry.
     pub fn with_download_started(mut self, record: EpisodeRecord) -> Self {
         self.tracker.insert(record.infohash.clone(), record);
