@@ -131,11 +131,14 @@ pub fn detail(subject_id: u32) -> anyhow::Result<Option<BangumiInfo>> {
 // ── Internal ──
 
 fn http_get(url: &str) -> anyhow::Result<ureq::Response> {
-    let agent = ureq::AgentBuilder::new()
+    ureq::AgentBuilder::new()
         .timeout_connect(std::time::Duration::from_secs(10))
         .timeout_read(std::time::Duration::from_secs(30))
-        .build();
-    Ok(agent.get(url).set("User-Agent", UA).call()?)
+        .build()
+        .get(url)
+        .set("User-Agent", UA)
+        .call()
+        .map_err(|e| e.into())
 }
 
 fn url_encode(s: &str) -> String {

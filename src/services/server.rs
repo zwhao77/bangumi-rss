@@ -47,6 +47,7 @@ pub fn start(event_tx: Sender<Event>) {
             ("/api/downloads", _) => handle_list_downloads(request, &tx),
             ("/api/downloads/refresh", &Method::Post) => handle_refresh(request, &tx),
             (u, _) if u.starts_with("/api/bangumi/image") => handle_image_proxy(request, u),
+            (u, _) if u.starts_with("/api/bangumi/search") => handle_bangumi_search(request, u),
             _ => {
                 let _ =
                     request.respond(tiny_http::Response::from_string("404").with_status_code(404));
@@ -222,26 +223,50 @@ fn handle_image_proxy(req: tiny_http::Request, path: &str) -> Result<(), ()> {
 }
 
 fn percent_decode(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut bytes = s.bytes();
-    while let Some(b) = bytes.next() {
+    let mut bytes = Vec::new();
+    let mut iter = s.bytes();
+    while let Some(b) = iter.next() {
         if b == b'%' {
-            let hi = bytes
-                .next()
-                .and_then(|b| (b as char).to_digit(16))
-                .unwrap_or(0) as u8;
-            let lo = bytes
-                .next()
-                .and_then(|b| (b as char).to_digit(16))
-                .unwrap_or(0) as u8;
-            result.push((hi << 4 | lo) as char);
+            let hi = iter.next().and_then(|b| (b as char).to_digit(16)).unwrap_or(0) as u8;
+            let lo = iter.next().and_then(|b| (b as char).to_digit(16)).unwrap_or(0) as u8;
+            bytes.push(hi << 4 | lo);
         } else if b == b'+' {
-            result.push(' ');
+            bytes.push(b' ');
         } else {
-            result.push(b as char);
+            bytes.push(b);
         }
     }
-    result
+    String::from_utf8(bytes).unwrap_or_default()
+}
+
+/// GET /api/bangumi/search?name=<url_encoded>
+/// Re-search Bangumi by name (for user corrections).
+fn handle_bangumi_search(req: tiny_http::Request, path: &str) -> Result<(), ()> {
+    let name = path
+        .strip_prefix("/api/bangumi/search?name=")
+        .map(percent_decode)
+        .unwrap_or_default();
+
+    if name.is_empty() {
+        return respond(req, 400, r#"{"success":false,"message":"missing name"}"#);
+    }
+
+    let result = match crate::services::bangumi::search(&name) {
+        Ok(Some(id)) => {
+            println!("[http] Bangumi search '{name}' → #{id}");
+            match crate::services::bangumi::detail(id) {
+                Ok(Some(info)) => {
+                    serde_json::json!({ "success": true, "bangumi_info": info })
+                }
+                Ok(None) => serde_json::json!({ "success": false, "message": "no detail" }),
+                Err(e) => serde_json::json!({ "success": false, "message": format!("{e}") }),
+            }
+        }
+        Ok(None) => serde_json::json!({ "success": false, "message": "not found" }),
+        Err(e) => serde_json::json!({ "success": false, "message": format!("{e}") }),
+    };
+
+    respond_ok(req, &result.to_string())
 }
 
 const CONFIRM_PAGE: &str = include_str!("../../res/confirm.html");

@@ -284,6 +284,7 @@
     <p><span class="tag">${data.group || '-'}</span></p>
     <label class="label">番剧名</label>
     <input id="animeName" value="${data.suggested_name || ''}">
+    <button onclick="searchBangumi()" id="searchBtn" style="margin-top:0;padding:6px;font-size:13px">搜索 Bangumi</button>
     <label class="label">季数</label>
     <select id="season">
       ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(s => `<option ${s == data.suggested_season ? 'selected' : ''}>S${s}</option>`).join('')}
@@ -308,6 +309,48 @@
                 : `<p style="color:red">❌ 订阅失败: ${data.message}</p>`;
             loadFeeds();
             loadDownloads();
+        }
+
+        async function searchBangumi() {
+            const name = document.getElementById('animeName').value.trim();
+            if (!name) return;
+            const btn = document.getElementById('searchBtn');
+            btn.disabled = true;
+            btn.textContent = '搜索中…';
+            try {
+                const resp = await fetch('/api/bangumi/search?name=' + encodeURIComponent(name));
+                const data = await resp.json();
+                if (data.success && data.bangumi_info) {
+                    window._bangumiInfo = data.bangumi_info;
+                    renderBangumiCard(data.bangumi_info);
+                } else {
+                    document.querySelector('.bgm-card')?.remove();
+                    window._bangumiInfo = null;
+                }
+            } catch (e) {
+                console.error('searchBangumi failed', e);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '搜索 Bangumi';
+            }
+        }
+
+        function renderBangumiCard(bgm) {
+            const old = document.querySelector('.bgm-card');
+            if (old) old.remove();
+            const weekday = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+            const card = document.createElement('div');
+            card.className = 'bgm-card';
+            card.innerHTML = `
+                ${bgm.image_url ? `<img src="${bgm.image_url}" onerror="this.style.display='none'">` : ''}
+                <div class="info"><strong>${bgm.name_cn}</strong>
+                ${bgm.rank ? `<span class="tag">#${bgm.rank}</span>` : ''}
+                <span class="rating">${bgm.rating ? '★ ' + bgm.rating.toFixed(1) : ''}</span>
+                <span class="tag">${bgm.air_date || ''}${bgm.air_weekday ? ' ' + weekday[bgm.air_weekday] : ''}</span>
+                <span class="tag tag-ongoing">${bgm.eps_count ? bgm.eps_count + ' 集' : '未完结'}</span>
+                ${bgm.summary ? `<div class="feed-meta">${bgm.summary}</div>` : ''}</div>`;
+            const info = document.getElementById('previewInfo');
+            info.insertBefore(card, info.firstChild);
         }
 
         async function loadFeeds() {
