@@ -17,6 +17,8 @@ rss = "2"
 base64 = "0.22"
 log = "0.4"
 env_logger = "0.11"
+serde_urlencoded = "0.7"
+matchit = "0.9"
 
 [dev-dependencies]
 tempfile = "3"

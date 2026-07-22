@@ -312,7 +312,7 @@
             const name = document.getElementById('animeName').value;
             const season = parseInt(document.getElementById('season').value.replace('S', ''));
             const body = JSON.stringify({ url: pendingUrl, name, season, bangumi_info: window._bangumiInfo });
-            const resp = await fetch('/api/feeds/confirm', { method: 'POST', body });
+            const resp = await fetch('/api/feeds', { method: 'POST', body });
             const data = await resp.json();
             document.getElementById('result').classList.remove('hidden');
             document.getElementById('result').innerHTML = data.success
@@ -334,6 +334,7 @@
                 if (data.success && data.bangumi_info) {
                     window._bangumiInfo = data.bangumi_info;
                     document.getElementById('bangumiId').value = data.bangumi_info.bangumi_id;
+                    document.getElementById('animeName').value = data.bangumi_info.name_cn || data.bangumi_info.name;
                     renderBangumiCard(data.bangumi_info);
                 } else {
                     document.querySelector('.bgm-card')?.remove();
@@ -351,11 +352,11 @@
             const id = document.getElementById('bangumiId').value.trim();
             if (!id) return;
             try {
-                const resp = await fetch('/api/bangumi/subject?id=' + id);
+                const resp = await fetch('/api/bangumi/subjects/' + id);
                 const data = await resp.json();
                 if (data.success && data.bangumi_info) {
                     window._bangumiInfo = data.bangumi_info;
-                    document.getElementById('animeName').value = data.bangumi_info.name_cn;
+                    document.getElementById('animeName').value = data.bangumi_info.name_cn || data.bangumi_info.name;
                     renderBangumiCard(data.bangumi_info);
                 } else {
                     document.querySelector('.bgm-card')?.remove();
@@ -374,7 +375,7 @@
             card.className = 'bgm-card';
             card.innerHTML = `
                 ${bgm.image_url ? `<img src="${bgm.image_url}" onerror="this.style.display='none'">` : ''}
-                <div class="info"><strong>${bgm.name_cn}</strong>
+                <div class="info"><strong>${bgm.name_cn || bgm.name}</strong>
                 ${bgm.rank ? `<span class="tag">#${bgm.rank}</span>` : ''}
                 <span class="rating">${bgm.rating ? '★ ' + bgm.rating.toFixed(1) : ''}</span>
                 <span class="tag">${bgm.air_date || ''}${bgm.air_weekday ? ' ' + weekday[bgm.air_weekday] : ''}</span>

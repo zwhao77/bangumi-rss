@@ -20,7 +20,7 @@ use services::start_server;
 const CHANNEL_CAPACITY: usize = 256;
 
 fn main() -> anyhow::Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug"))
         .format_timestamp_millis()
         .init();
 

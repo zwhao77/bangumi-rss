@@ -2,6 +2,8 @@ use crate::core::event::Event;
 use crate::types::{ApiResponse, BangumiInfo};
 use crate::utils::preview;
 use crossbeam_channel::Sender;
+use matchit::Router;
+use std::io::Read;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tiny_http::{Method, Response};
@@ -9,7 +11,71 @@ use tiny_http::{Method, Response};
 const JSON_TYPE: &str = "Content-Type: application/json; charset=utf-8";
 const HTML_TYPE: &str = "Content-Type: text/html; charset=utf-8";
 
-/// Start the HTTP API + confirmation web app.
+/// Unified response type — every handler returns this, `respond()` sends it.
+enum AppResponse {
+    Text {
+        code: u16,
+        body: String,
+        content_type: &'static str,
+    },
+    Image {
+        code: u16,
+        data: Vec<u8>,
+        content_type: String,
+    },
+}
+
+// ── Route table (matchit) ──
+
+#[derive(Debug, Clone, Copy)]
+enum Route {
+    Feeds,            // GET /api/feeds  | POST /api/feeds
+    FeedId,           // PUT /api/feeds/{id}  | DELETE /api/feeds/{id}
+    FeedPreview,      // POST /api/feeds/preview
+    Downloads,        // GET /api/downloads
+    DownloadsRefresh, // POST /api/downloads/refresh
+    BangumiSubjects,  // GET /api/bangumi/subjects/{id}
+    BangumiSearch,    // GET /api/bangumi/search
+    ImageProxy,       // GET /api/bangumi/image
+}
+
+fn build_router() -> Router<Route> {
+    let mut r = Router::new();
+    r.insert("/api/feeds", Route::Feeds).unwrap();
+    r.insert("/api/feeds/{id}", Route::FeedId).unwrap();
+    r.insert("/api/feeds/preview", Route::FeedPreview).unwrap();
+    r.insert("/api/downloads", Route::Downloads).unwrap();
+    r.insert("/api/downloads/refresh", Route::DownloadsRefresh)
+        .unwrap();
+    r.insert("/api/bangumi/subjects/{id}", Route::BangumiSubjects)
+        .unwrap();
+    r.insert("/api/bangumi/search", Route::BangumiSearch)
+        .unwrap();
+    r.insert("/api/bangumi/image", Route::ImageProxy).unwrap();
+    r
+}
+
+// ── Truncation helper ──
+
+fn truncate(s: &str, max: usize) -> String {
+    let chars: Vec<_> = s.char_indices().collect();
+    if chars.len() <= max {
+        return s.to_string();
+    }
+    let head = max * 3 / 4;
+    let tail = max / 4;
+    let head_end = chars[head].0;
+    let tail_start = chars[chars.len() - tail].0;
+    format!(
+        "{}...<{} chars omitted>...{}",
+        &s[..head_end],
+        chars.len().saturating_sub(head + tail),
+        &s[tail_start..]
+    )
+}
+
+// ── Server ──
+
 pub fn start(event_tx: Sender<Event>) {
     let preferred: u16 = std::env::var("PORT")
         .ok()
@@ -31,54 +97,127 @@ pub fn start(event_tx: Sender<Event>) {
         .unwrap_or(preferred);
     log::info!("listening on http://127.0.0.1:{actual_port}");
 
+    let router = build_router();
     let tx = Arc::new(event_tx);
 
-    for request in server.incoming_requests() {
+    for mut request in server.incoming_requests() {
         let tx = tx.clone();
-        let url = request.url().to_string();
         let method = request.method().clone();
-        log::info!("-> {} {}", method, url);
-        let result = match (&*url, &method) {
-            ("/", _) => handle_index(request),
-            ("/api/feeds/preview", &Method::Post) => handle_preview(request),
-            ("/api/feeds/confirm", &Method::Post) => handle_confirm(request, &tx),
-            ("/api/feeds/update", &Method::Post) => handle_feed_update(request, &tx),
-            (u, &Method::Delete) if u.starts_with("/api/feeds") => handle_feed_delete(request, &tx),
-            ("/api/feeds", _) => handle_list_feeds(request, &tx),
-            ("/api/downloads", _) => handle_list_downloads(request, &tx),
-            ("/api/downloads/refresh", &Method::Post) => handle_refresh(request, &tx),
-            (u, _) if u.starts_with("/api/bangumi/image") => handle_image_proxy(request, u),
-            (u, _) if u.starts_with("/api/bangumi/subject") => handle_bangumi_subject(request, u),
-            (u, _) if u.starts_with("/api/bangumi/search") => handle_bangumi_search(request, u),
-            _ => {
-                log::debug!("<- 404 {}", url);
-                let _ =
-                    request.respond(tiny_http::Response::from_string("404").with_status_code(404));
-                Ok(())
+        let url = request.url().to_string();
+
+        let mut body = String::new();
+        let _ = request.as_reader().read_to_string(&mut body);
+        log::info!("-> {} {} body={}", method, url, truncate(&body, 200));
+
+        // Strip query string for matchit routing.
+        let path = url.split('?').next().unwrap_or(&url);
+        let matched = router.at(path).ok();
+        let route = matched.as_ref().map(|m| m.value);
+
+        let resp = match (route, method) {
+            // ═══ / ═══
+            (None, _) if path == "/" => handle_index(),
+
+            // ═══ /api/feeds ═══
+            (Some(Route::Feeds), Method::Get) => handle_list_feeds(&tx),
+            (Some(Route::Feeds), Method::Post) => handle_feed_create(&body, &tx),
+
+            // ═══ /api/feeds/{id} ═══
+            (Some(Route::FeedId), Method::Put) => {
+                let id = matched.unwrap().params.get("id").unwrap_or("");
+                handle_feed_update(id, &body, &tx)
             }
+            (Some(Route::FeedId), Method::Delete) => {
+                let id = matched.unwrap().params.get("id").unwrap_or("");
+                handle_feed_delete(id, &tx)
+            }
+
+            // ═══ /api/feeds/preview ═══
+            (Some(Route::FeedPreview), Method::Post) => handle_preview(&body),
+
+            // ═══ /api/downloads ═══
+            (Some(Route::Downloads), Method::Get) => handle_list_downloads(&tx),
+            (Some(Route::DownloadsRefresh), Method::Post) => handle_refresh(&tx),
+
+            // ═══ /api/bangumi ═══
+            (Some(Route::BangumiSubjects), Method::Get) => {
+                let id = matched.unwrap().params.get("id").unwrap_or("");
+                handle_bangumi_subject(id)
+            }
+            (Some(Route::BangumiSearch), Method::Get) => handle_bangumi_search(&url),
+            (Some(Route::ImageProxy), Method::Get) => handle_image_proxy(&url),
+
+            _ => AppResponse::Text {
+                code: 404,
+                body: "404".into(),
+                content_type: JSON_TYPE,
+            },
         };
-        if let Err(e) = result {
-            log::error!("handler error: {:?}", e);
+
+        respond(request, resp, &url);
+    }
+}
+
+// ── Unified response sender ──
+
+fn respond(mut request: tiny_http::Request, resp: AppResponse, url: &str) {
+    // Extract metadata before moving `resp`.
+    let code = match &resp {
+        AppResponse::Text { code, .. } => *code,
+        AppResponse::Image { code, .. } => *code,
+    };
+    let body_repr = match &resp {
+        AppResponse::Text {
+            body, content_type, ..
+        } if *content_type == HTML_TYPE => {
+            format!("<HTML {} chars>", body.len())
         }
+        AppResponse::Text { body, .. } => truncate(body, 500),
+        AppResponse::Image {
+            data, content_type, ..
+        } => {
+            format!("<image {} bytes, {content_type}>", data.len())
+        }
+    };
+
+    // Move ownership of body/data — zero-copy.
+    let result = match resp {
+        AppResponse::Text {
+            code,
+            body,
+            content_type,
+        } => {
+            let header = content_type.parse::<tiny_http::Header>().unwrap();
+            request.respond(
+                Response::from_string(body)
+                    .with_status_code(code)
+                    .with_header(header),
+            )
+        }
+        AppResponse::Image {
+            code,
+            data,
+            content_type,
+        } => {
+            // content_type is pre-validated in the handler, unwrap is safe.
+            let header = format!("Content-Type: {content_type}")
+                .parse::<tiny_http::Header>()
+                .unwrap();
+            request.respond(
+                Response::from_data(data)
+                    .with_status_code(code)
+                    .with_header(header),
+            )
+        }
+    };
+
+    match result {
+        Ok(()) => log::debug!("<- {} {} body={}", code, url, body_repr),
+        Err(e) => log::error!("<- {} {} respond failed: {e}", code, url),
     }
 }
 
-// ── Response helpers ──
-
-/// Truncate a string for logging: show head + tail with a truncation marker.
-fn truncate_for_log(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        return s.to_string();
-    }
-    let head = max_len * 3 / 4;
-    let tail = max_len / 4;
-    format!(
-        "{}...<{} chars omitted>...{}",
-        &s[..head],
-        s.len().saturating_sub(head + tail),
-        &s[s.len() - tail..]
-    )
-}
+// ── Server binding ──
 
 /// Try to bind to a specific port. Returns `None` if the port is unavailable.
 fn try_bind(port: u16) -> Option<tiny_http::Server> {
@@ -86,46 +225,30 @@ fn try_bind(port: u16) -> Option<tiny_http::Server> {
     tiny_http::Server::http(addr).ok()
 }
 
-fn respond(req: tiny_http::Request, code: u16, body: &str) -> Result<(), ()> {
-    let truncated = truncate_for_log(body, 500);
-    log::debug!("<- {} {} body={}", code, req.url(), truncated);
-    req.respond(
-        Response::from_string(body)
-            .with_status_code(code)
-            .with_header(JSON_TYPE.parse::<tiny_http::Header>().unwrap()),
-    )
-    .map_err(|_| ())
-}
-
-fn respond_ok(req: tiny_http::Request, json: &str) -> Result<(), ()> {
-    respond(req, 200, json)
-}
-
 // ── Route handlers ──
 
-fn handle_index(req: tiny_http::Request) -> Result<(), ()> {
-    log::debug!("<- 200 {} body=<HTML {} chars>", req.url(), CONFIRM_PAGE.len());
-    req.respond(
-        Response::from_string(CONFIRM_PAGE)
-            .with_header(HTML_TYPE.parse::<tiny_http::Header>().unwrap()),
-    )
-    .map_err(|_| ())
+fn handle_index() -> AppResponse {
+    AppResponse::Text {
+        code: 200,
+        body: CONFIRM_PAGE.into(),
+        content_type: HTML_TYPE,
+    }
 }
 
-fn handle_preview(mut req: tiny_http::Request) -> Result<(), ()> {
-    let mut body = String::new();
-    let _ = req.as_reader().read_to_string(&mut body);
-    let url = body.trim().to_string();
-
-    let preview = preview::fetch_feed_preview(&url).unwrap_or_default();
+fn handle_preview(body: &str) -> AppResponse {
+    let url = body.trim();
+    let preview = preview::fetch_feed_preview(url).unwrap_or_default();
     let json = serde_json::to_string(&preview).unwrap_or_default();
-    respond_ok(req, &json)
+    AppResponse::Text {
+        code: 200,
+        body: json,
+        content_type: JSON_TYPE,
+    }
 }
 
-fn handle_confirm(mut req: tiny_http::Request, tx: &Sender<Event>) -> Result<(), ()> {
-    let mut body = String::new();
-    let _ = req.as_reader().read_to_string(&mut body);
-    let confirm: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+/// POST /api/feeds — create (confirm) a new feed subscription.
+fn handle_feed_create(body: &str, tx: &Sender<Event>) -> AppResponse {
+    let confirm: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
     let url = confirm["url"].as_str().unwrap_or("").to_string();
     let name = confirm["name"].as_str().unwrap_or("").to_string();
     let season = confirm["season"].as_u64().unwrap_or(1) as u8;
@@ -146,161 +269,196 @@ fn handle_confirm(mut req: tiny_http::Request, tx: &Sender<Event>) -> Result<(),
         message: "timeout".into(),
     });
     let json = serde_json::to_string(&result).unwrap_or_default();
-    respond_ok(req, &json)
+    AppResponse::Text {
+        code: 200,
+        body: json,
+        content_type: JSON_TYPE,
+    }
 }
 
-fn handle_feed_update(mut req: tiny_http::Request, tx: &Sender<Event>) -> Result<(), ()> {
-    let mut body = String::new();
-    let _ = req.as_reader().read_to_string(&mut body);
-    let update: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
-    let feed_id = uuid::Uuid::parse_str(update["id"].as_str().unwrap_or(""));
+/// PUT /api/feeds/{id} — update feed name / season.
+fn handle_feed_update(id: &str, body: &str, tx: &Sender<Event>) -> AppResponse {
+    let feed_id = match uuid::Uuid::parse_str(id) {
+        Ok(id) => id,
+        Err(_) => {
+            return AppResponse::Text {
+                code: 400,
+                body: r#"{"success":false,"message":"invalid id"}"#.into(),
+                content_type: JSON_TYPE,
+            };
+        }
+    };
+
+    let update: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
     let name = update["name"].as_str().unwrap_or("").to_string();
     let season = update["season"].as_u64().unwrap_or(1) as u8;
 
-    match feed_id {
-        Ok(id) => {
-            let _ = tx.send(Event::UserConfirm {
-                feed_id: id,
-                name,
-                season,
-            });
-            respond_ok(req, "{\"success\":true,\"message\":\"updated\"}")
-        }
-        Err(_) => respond(req, 400, "{\"success\":false,\"message\":\"invalid id\"}"),
+    let _ = tx.send(Event::UserConfirm {
+        feed_id,
+        name,
+        season,
+    });
+    AppResponse::Text {
+        code: 200,
+        body: r#"{"success":true,"message":"updated"}"#.into(),
+        content_type: JSON_TYPE,
     }
 }
 
-fn handle_feed_delete(req: tiny_http::Request, tx: &Sender<Event>) -> Result<(), ()> {
-    let query = req.url().to_string();
-    let feed_id = query
-        .split("?id=")
-        .nth(1)
-        .and_then(|s| uuid::Uuid::parse_str(s).ok());
-
-    match feed_id {
-        Some(id) => {
-            let (reply_tx, reply_rx) = crossbeam_channel::bounded(1);
-            let _ = tx.send(Event::ApiRemoveFeed {
-                feed_id: id,
-                reply_tx,
-            });
-            let result = reply_rx.recv().unwrap_or(ApiResponse {
-                success: false,
-                message: "timeout".into(),
-            });
-            let json = serde_json::to_string(&result).unwrap_or_default();
-            respond_ok(req, &json)
+/// DELETE /api/feeds/{id}
+fn handle_feed_delete(id: &str, tx: &Sender<Event>) -> AppResponse {
+    let feed_id = match uuid::Uuid::parse_str(id) {
+        Ok(id) => id,
+        Err(_) => {
+            return AppResponse::Text {
+                code: 400,
+                body: r#"{"success":false,"message":"invalid id"}"#.into(),
+                content_type: JSON_TYPE,
+            };
         }
-        None => respond(req, 400, "{\"success\":false,\"message\":\"invalid id\"}"),
+    };
+
+    let (reply_tx, reply_rx) = crossbeam_channel::bounded(1);
+    let _ = tx.send(Event::ApiRemoveFeed { feed_id, reply_tx });
+    let result = reply_rx.recv().unwrap_or(ApiResponse {
+        success: false,
+        message: "timeout".into(),
+    });
+    let json = serde_json::to_string(&result).unwrap_or_default();
+    AppResponse::Text {
+        code: 200,
+        body: json,
+        content_type: JSON_TYPE,
     }
 }
 
-fn handle_list_feeds(req: tiny_http::Request, tx: &Sender<Event>) -> Result<(), ()> {
+fn handle_list_feeds(tx: &Sender<Event>) -> AppResponse {
     let (reply_tx, reply_rx) = crossbeam_channel::bounded(1);
     let _ = tx.send(Event::ApiListFeeds { reply_tx });
     let feeds = reply_rx.recv().unwrap_or_default();
     let json = serde_json::to_string(&feeds).unwrap_or_default();
-    respond_ok(req, &json)
+    AppResponse::Text {
+        code: 200,
+        body: json,
+        content_type: JSON_TYPE,
+    }
 }
 
-fn handle_list_downloads(req: tiny_http::Request, tx: &Sender<Event>) -> Result<(), ()> {
+fn handle_list_downloads(tx: &Sender<Event>) -> AppResponse {
     let (reply_tx, reply_rx) = crossbeam_channel::bounded(1);
     let _ = tx.send(Event::ApiListDownloads { reply_tx });
     let downloads = reply_rx.recv().unwrap_or_default();
     let json = serde_json::to_string(&downloads).unwrap_or_default();
-    respond_ok(req, &json)
+    AppResponse::Text {
+        code: 200,
+        body: json,
+        content_type: JSON_TYPE,
+    }
 }
 
-fn handle_refresh(req: tiny_http::Request, tx: &Sender<Event>) -> Result<(), ()> {
+fn handle_refresh(tx: &Sender<Event>) -> AppResponse {
     let _ = tx.send(Event::RefreshDownloads);
-    respond_ok(req, "{\"success\":true,\"message\":\"refresh triggered\"}")
+    AppResponse::Text {
+        code: 200,
+        body: r#"{"success":true,"message":"refresh triggered"}"#.into(),
+        content_type: JSON_TYPE,
+    }
 }
 
-/// Proxy Bangumi cover images through the backend so they work behind proxies.
 /// GET /api/bangumi/image?url=<encoded_url>
-fn handle_image_proxy(req: tiny_http::Request, path: &str) -> Result<(), ()> {
-    let encoded = path.strip_prefix("/api/bangumi/image?url=").unwrap_or("");
-    let img_url = percent_decode(encoded);
+fn handle_image_proxy(path: &str) -> AppResponse {
+    let query_str = path.split_once('?').map(|(_, q)| q).unwrap_or("");
+    let img_url = serde_urlencoded::from_str::<Vec<(String, String)>>(query_str)
+        .ok()
+        .and_then(|pairs| pairs.into_iter().find(|(k, _)| k == "url"))
+        .map(|(_, v)| v)
+        .unwrap_or_default();
+
+    if img_url.is_empty() {
+        return AppResponse::Image {
+            code: 400,
+            data: Vec::new(),
+            content_type: "text/plain".into(),
+        };
+    }
 
     match ureq::get(&img_url).call() {
         Ok(resp) => {
-            let ct = resp.content_type().to_string();
+            let raw_ct = resp.content_type().to_string();
+            let ct = if format!("Content-Type: {raw_ct}")
+                .parse::<tiny_http::Header>()
+                .is_ok()
+            {
+                raw_ct
+            } else {
+                log::warn!("image proxy: invalid content-type '{raw_ct}', using octet-stream");
+                "application/octet-stream".into()
+            };
             let mut buf = Vec::new();
             if resp.into_reader().read_to_end(&mut buf).is_ok() {
-                let len = buf.len();
-                log::debug!("<- 200 {} body=<image {} bytes, {ct}>", req.url(), len);
-                let _ = req.respond(
-                    tiny_http::Response::from_data(buf).with_header(
-                        format!("Content-Type: {ct}")
-                            .parse::<tiny_http::Header>()
-                            .unwrap(),
-                    ),
-                );
-                return Ok(());
+                return AppResponse::Image {
+                    code: 200,
+                    data: buf,
+                    content_type: ct,
+                };
             }
         }
         Err(e) => log::warn!("image proxy failed for {img_url}: {e}"),
     }
-    log::debug!("<- 404 {}", req.url());
-    let _ = req.respond(tiny_http::Response::from_string("").with_status_code(404));
-    Ok(())
-}
-
-fn percent_decode(s: &str) -> String {
-    let mut bytes = Vec::new();
-    let mut iter = s.bytes();
-    while let Some(b) = iter.next() {
-        if b == b'%' {
-            let hi = iter
-                .next()
-                .and_then(|b| (b as char).to_digit(16))
-                .unwrap_or(0) as u8;
-            let lo = iter
-                .next()
-                .and_then(|b| (b as char).to_digit(16))
-                .unwrap_or(0) as u8;
-            bytes.push(hi << 4 | lo);
-        } else if b == b'+' {
-            bytes.push(b' ');
-        } else {
-            bytes.push(b);
-        }
+    AppResponse::Image {
+        code: 404,
+        data: Vec::new(),
+        content_type: "text/plain".into(),
     }
-    String::from_utf8(bytes).unwrap_or_default()
 }
 
-/// GET /api/bangumi/subject?id=<number>
-/// Fetch Bangumi metadata by subject ID directly.
-fn handle_bangumi_subject(req: tiny_http::Request, path: &str) -> Result<(), ()> {
-    let id_str = path.strip_prefix("/api/bangumi/subject?id=").unwrap_or("");
+/// GET /api/bangumi/subjects/{id}
+fn handle_bangumi_subject(id_str: &str) -> AppResponse {
     let id: u32 = match id_str.parse() {
         Ok(n) => n,
-        Err(_) => return respond(req, 400, r#"{"success":false,"message":"invalid id"}"#),
+        Err(_) => {
+            return AppResponse::Text {
+                code: 400,
+                body: r#"{"success":false,"message":"invalid id"}"#.into(),
+                content_type: JSON_TYPE,
+            };
+        }
     };
 
     match crate::services::bangumi::detail(id) {
-        Ok(Some(info)) => respond_ok(
-            req,
-            &serde_json::json!({"success":true,"bangumi_info":info}).to_string(),
-        ),
-        Ok(None) => respond_ok(req, r#"{"success":false,"message":"not found"}"#),
-        Err(e) => respond_ok(
-            req,
-            &serde_json::json!({"success":false,"message":format!("{e}")}).to_string(),
-        ),
+        Ok(Some(info)) => AppResponse::Text {
+            code: 200,
+            body: serde_json::json!({"success":true,"bangumi_info":info}).to_string(),
+            content_type: JSON_TYPE,
+        },
+        Ok(None) => AppResponse::Text {
+            code: 404,
+            body: r#"{"success":false,"message":"not found"}"#.into(),
+            content_type: JSON_TYPE,
+        },
+        Err(e) => AppResponse::Text {
+            code: 502,
+            body: serde_json::json!({"success":false,"message":format!("{e}")}).to_string(),
+            content_type: JSON_TYPE,
+        },
     }
 }
 
 /// GET /api/bangumi/search?name=<url_encoded>
-/// Re-search Bangumi by name (for user corrections).
-fn handle_bangumi_search(req: tiny_http::Request, path: &str) -> Result<(), ()> {
-    let name = path
-        .strip_prefix("/api/bangumi/search?name=")
-        .map(percent_decode)
+fn handle_bangumi_search(url: &str) -> AppResponse {
+    let query_str = url.split_once('?').map(|(_, q)| q).unwrap_or("");
+    let name = serde_urlencoded::from_str::<Vec<(String, String)>>(query_str)
+        .ok()
+        .and_then(|pairs| pairs.into_iter().find(|(k, _)| k == "name"))
+        .map(|(_, v)| v)
         .unwrap_or_default();
 
     if name.is_empty() {
-        return respond(req, 400, r#"{"success":false,"message":"missing name"}"#);
+        return AppResponse::Text {
+            code: 400,
+            body: r#"{"success":false,"message":"missing name"}"#.into(),
+            content_type: JSON_TYPE,
+        };
     }
 
     let result = match crate::services::bangumi::search(&name) {
@@ -318,7 +476,11 @@ fn handle_bangumi_search(req: tiny_http::Request, path: &str) -> Result<(), ()> 
         Err(e) => serde_json::json!({ "success": false, "message": format!("{e}") }),
     };
 
-    respond_ok(req, &result.to_string())
+    AppResponse::Text {
+        code: 200,
+        body: result.to_string(),
+        content_type: JSON_TYPE,
+    }
 }
 
 const CONFIRM_PAGE: &str = include_str!("../../res/confirm.html");
