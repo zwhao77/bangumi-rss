@@ -84,7 +84,7 @@ fn reduce_rss_tick(state: &AppState, feed_id: Uuid) -> Vec<Effect> {
             download_dir: state.download_dir.clone(),
         }],
         _ => {
-            eprintln!("[logic] RssTick for unknown/unconfirmed feed: {feed_id}");
+            log::warn!("RssTick for unknown/unconfirmed feed: {feed_id}");
             vec![]
         }
     }
@@ -106,8 +106,8 @@ fn reduce_rss_items_fetched(
         }
         // Reject batch torrents (e.g. "01-12").
         if crate::utils::tokenizer::is_batch_title(&item.title) {
-            println!(
-                "[logic] skip batch: {}",
+            log::debug!(
+                "skip batch: {}",
                 &item.title[..item.title.len().min(80)]
             );
             continue;
@@ -121,8 +121,8 @@ fn reduce_rss_items_fetched(
     }
 
     if effects.is_empty() {
-        println!(
-            "[logic] RssItemsFetched: all {} items already seen for feed={feed_id}",
+        log::debug!(
+            "RssItemsFetched: all {} items already seen for feed={feed_id}",
             items.len()
         );
     }
@@ -175,14 +175,14 @@ fn reduce_downloader_notification(
 ) -> (AppState, Vec<Effect>) {
     match status {
         DownloadStatus::Completed => {
-            println!(
-                "[logic] download completed: {}",
+            log::info!(
+                "download completed: {}",
                 &infohash[..infohash.len().min(16)]
             );
             let record = match state.tracker.get(&infohash) {
                 Some(r) => r,
                 None => {
-                    eprintln!("[logic] unknown download completed: {infohash}");
+                    log::warn!("unknown download completed: {infohash}");
                     return (state.clone(), vec![]);
                 }
             };
@@ -199,7 +199,7 @@ fn reduce_downloader_notification(
             (state.clone(), effects)
         }
         DownloadStatus::Failed => {
-            eprintln!("[logic] download failed: {infohash}");
+            log::warn!("download failed: {infohash}");
             let mut new_state = state.clone();
             new_state.tracker.remove(&infohash);
             (new_state, vec![])
@@ -217,7 +217,7 @@ fn reduce_episode_completed(
     let record = match state.tracker.get(infohash) {
         Some(r) => r,
         None => {
-            eprintln!("[logic] EpisodeCompleted for unknown infohash: {infohash}");
+            log::warn!("EpisodeCompleted for unknown infohash: {infohash}");
             return (state.clone(), vec![]);
         }
     };

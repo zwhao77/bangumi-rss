@@ -20,6 +20,10 @@ use services::start_server;
 const CHANNEL_CAPACITY: usize = 256;
 
 fn main() -> anyhow::Result<()> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format_timestamp_millis()
+        .init();
+
     // ── channels ──
     let (event_tx, event_rx) = bounded::<Event>(CHANNEL_CAPACITY);
     let (effect_tx, effect_rx) = bounded::<Effect>(CHANNEL_CAPACITY);
@@ -33,7 +37,7 @@ fn main() -> anyhow::Result<()> {
             .ok()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| {
-                eprintln!("[main] DOWNLOAD_DIR not set, using /downloads");
+                log::warn!("DOWNLOAD_DIR not set, using /downloads");
                 "/downloads".into()
             });
     }
@@ -42,7 +46,7 @@ fn main() -> anyhow::Result<()> {
             .ok()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| {
-                eprintln!("[main] LIBRARY_DIR not set, using /anime");
+                log::warn!("LIBRARY_DIR not set, using /anime");
                 "/anime".into()
             });
     }
@@ -83,7 +87,7 @@ fn main() -> anyhow::Result<()> {
         let tx = event_tx.clone();
         tm.add(rss_interval, move || {
             if tx.send(Event::RssTickAll).is_err() {
-                eprintln!("[timer] logic channel disconnected, RSS tick dropped");
+                log::error!("logic channel disconnected, RSS tick dropped");
                 return false; // stop this timer
             }
             true
@@ -93,7 +97,7 @@ fn main() -> anyhow::Result<()> {
         let tx = event_tx.clone();
         tm.add(Duration::from_secs(30), move || {
             if tx.send(Event::PollDownloader).is_err() {
-                eprintln!("[timer] logic channel disconnected, poll dropped");
+                log::error!("logic channel disconnected, poll dropped");
                 return false;
             }
             true
@@ -105,7 +109,7 @@ fn main() -> anyhow::Result<()> {
     let tx = event_tx.clone();
     thread::spawn(move || {
         start_server(tx);
-        eprintln!("[main] HTTP server thread exited");
+        log::warn!("HTTP server thread exited");
     });
 
     // ── effect executor (consumes effects, may publish DownloadStarted events) ──
@@ -128,7 +132,7 @@ fn main() -> anyhow::Result<()> {
     // ── main thread: wait for logic to exit, then clean up ──
     logic_handle.join().ok();
     timer_shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
-    println!("[main] shutdown complete");
+    log::info!("shutdown complete");
 
     Ok(())
 }

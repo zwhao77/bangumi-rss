@@ -81,8 +81,8 @@ pub(crate) fn resolve_files(
 
             // Validate against expected.
             if expected_key.episode > 0 && !episode_keys_match(&key, expected_key) {
-                eprintln!(
-                    "[handler] episode mismatch for '{}': file={} expected={}",
+                log::warn!(
+                    "episode mismatch for '{}': file={} expected={}",
                     &f.name[..f.name.len().min(60)],
                     key.episode,
                     expected_key.episode,

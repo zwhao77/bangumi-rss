@@ -82,28 +82,28 @@ fn lookup_bangumi(name: &str) -> Option<crate::types::BangumiInfo> {
     match crate::services::bangumi::search(name) {
         Ok(Some(id)) => match crate::services::bangumi::detail(id) {
             Ok(Some(info)) => {
-                println!(
-                    "[util] Bangumi detail #{id}: {} · ★{}",
+                log::debug!(
+                    "Bangumi detail #{id}: {} · ★{}",
                     info.name_cn,
                     info.rating.map_or("-".into(), |r| format!("{r}"))
                 );
                 Some(info)
             }
             Ok(None) => {
-                println!("[util] Bangumi detail #{id}: no data");
+                log::debug!("Bangumi detail #{id}: no data");
                 None
             }
             Err(e) => {
-                eprintln!("[util] Bangumi detail #{id} error: {e}");
+                log::warn!("Bangumi detail #{id} error: {e}");
                 None
             }
         },
         Ok(None) => {
-            println!("[util] Bangumi search '{name}': not found");
+            log::debug!("Bangumi search '{name}': not found");
             None
         }
         Err(e) => {
-            eprintln!("[util] Bangumi search '{name}' error: {e}");
+            log::warn!("Bangumi search '{name}' error: {e}");
             None
         }
     }

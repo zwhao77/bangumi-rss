@@ -17,9 +17,9 @@ pub fn start(event_tx: Sender<Event>) {
         .unwrap_or(7893);
 
     let server = try_bind(preferred).unwrap_or_else(|| {
-        eprintln!("[http] port {preferred} unavailable, trying OS-assigned port");
+        log::info!("port {preferred} unavailable, trying OS-assigned");
         try_bind(0).unwrap_or_else(|| {
-            eprintln!("[http] fatal: failed to bind any port");
+            log::error!("fatal: failed to bind any port");
             std::process::exit(1);
         })
     });
@@ -29,7 +29,7 @@ pub fn start(event_tx: Sender<Event>) {
         .to_ip()
         .map(|a| a.port())
         .unwrap_or(preferred);
-    println!("[http] listening on http://127.0.0.1:{actual_port}");
+    log::info!("listening on http://127.0.0.1:{actual_port}");
 
     let tx = Arc::new(event_tx);
 
@@ -37,6 +37,7 @@ pub fn start(event_tx: Sender<Event>) {
         let tx = tx.clone();
         let url = request.url().to_string();
         let method = request.method().clone();
+        log::debug!("-> {} {}", method, url);
         let result = match (&*url, &method) {
             ("/", _) => handle_index(request),
             ("/api/feeds/preview", &Method::Post) => handle_preview(request),
@@ -56,7 +57,7 @@ pub fn start(event_tx: Sender<Event>) {
             }
         };
         if let Err(e) = result {
-            eprintln!("[http] request error: {:?}", e);
+            log::error!("handler error: {:?}", e);
         }
     }
 }
@@ -217,7 +218,7 @@ fn handle_image_proxy(req: tiny_http::Request, path: &str) -> Result<(), ()> {
                 return Ok(());
             }
         }
-        Err(e) => eprintln!("[http] image proxy failed for {img_url}: {e}"),
+        Err(e) => log::warn!("image proxy failed for {img_url}: {e}"),
     }
     let _ = req.respond(tiny_http::Response::from_string("").with_status_code(404));
     Ok(())
@@ -228,8 +229,14 @@ fn percent_decode(s: &str) -> String {
     let mut iter = s.bytes();
     while let Some(b) = iter.next() {
         if b == b'%' {
-            let hi = iter.next().and_then(|b| (b as char).to_digit(16)).unwrap_or(0) as u8;
-            let lo = iter.next().and_then(|b| (b as char).to_digit(16)).unwrap_or(0) as u8;
+            let hi = iter
+                .next()
+                .and_then(|b| (b as char).to_digit(16))
+                .unwrap_or(0) as u8;
+            let lo = iter
+                .next()
+                .and_then(|b| (b as char).to_digit(16))
+                .unwrap_or(0) as u8;
             bytes.push(hi << 4 | lo);
         } else if b == b'+' {
             bytes.push(b' ');
@@ -250,9 +257,15 @@ fn handle_bangumi_subject(req: tiny_http::Request, path: &str) -> Result<(), ()>
     };
 
     match crate::services::bangumi::detail(id) {
-        Ok(Some(info)) => respond_ok(req, &serde_json::json!({"success":true,"bangumi_info":info}).to_string()),
+        Ok(Some(info)) => respond_ok(
+            req,
+            &serde_json::json!({"success":true,"bangumi_info":info}).to_string(),
+        ),
         Ok(None) => respond_ok(req, r#"{"success":false,"message":"not found"}"#),
-        Err(e) => respond_ok(req, &serde_json::json!({"success":false,"message":format!("{e}")}).to_string()),
+        Err(e) => respond_ok(
+            req,
+            &serde_json::json!({"success":false,"message":format!("{e}")}).to_string(),
+        ),
     }
 }
 
@@ -270,7 +283,7 @@ fn handle_bangumi_search(req: tiny_http::Request, path: &str) -> Result<(), ()> 
 
     let result = match crate::services::bangumi::search(&name) {
         Ok(Some(id)) => {
-            println!("[http] Bangumi search '{name}' → #{id}");
+            log::info!("Bangumi search '{name}' → #{id}");
             match crate::services::bangumi::detail(id) {
                 Ok(Some(info)) => {
                     serde_json::json!({ "success": true, "bangumi_info": info })

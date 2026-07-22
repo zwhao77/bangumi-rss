@@ -51,7 +51,7 @@ impl TorrentDownloader for MockDownloader {
             name,
             completed: false,
         });
-        println!("[mock-dl] added: infohash={infohash}, dir={dir}");
+        log::debug!("[mock-dl] added: infohash={infohash}, dir={dir}");
         Ok(infohash)
     }
 
@@ -73,7 +73,7 @@ impl TorrentDownloader for MockDownloader {
     }
 
     fn rename_file(&self, infohash: &str, _old_path: &str, new_name: &str) -> anyhow::Result<bool> {
-        println!("[mock-dl] rename: {infohash} → {new_name}");
+        log::debug!("[mock-dl] rename: {infohash} → {new_name}");
         Ok(true)
     }
 
@@ -91,7 +91,7 @@ impl TorrentDownloader for MockDownloader {
             .collect();
 
         if !fresh.is_empty() {
-            println!("[mock-dl] poll_completed: {} new", fresh.len());
+            log::debug!("[mock-dl] poll_completed: {} new", fresh.len());
         }
         Ok(fresh)
     }
@@ -145,7 +145,7 @@ pub struct MockRssClient;
 
 impl RssFetcher for MockRssClient {
     fn fetch(&self, url: &str) -> anyhow::Result<Vec<RssItem>> {
-        println!("[mock-rss] fetch: {url}");
+        log::debug!("[mock-rss] fetch: {url}");
         Ok(vec![RssItem {
             title: "[MockSubs] 葬送的芙莉莲 第二季 - 38 [1080p]".into(),
             torrent_url: format!(
@@ -156,7 +156,7 @@ impl RssFetcher for MockRssClient {
     }
 
     fn fetch_preview(&self, url: &str) -> anyhow::Result<RssPreview> {
-        println!("[mock-rss] preview: {url}");
+        log::debug!("[mock-rss] preview: {url}");
         Ok(RssPreview {
             channel_title: "葬送的芙莉莲".into(),
             item_titles: vec![
@@ -207,7 +207,7 @@ impl FileOps for MockFileSystem {
             .lock()
             .unwrap()
             .push((from.to_path_buf(), to.to_path_buf()));
-        println!("[mock-fs] move: {from:?} → {to:?}");
+        log::debug!("[mock-fs] move: {from:?} → {to:?}");
         Ok(())
     }
 }

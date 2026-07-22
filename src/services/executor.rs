@@ -44,7 +44,7 @@ where
 {
     /// Block on `rx`, execute each effect, push follow-up effects to `tx`.
     pub fn run(&self, rx: Receiver<Effect>, tx: Sender<Effect>) {
-        println!("[executor] started");
+        log::info!("started");
         for effect in rx {
             let follow_ups = self.execute(effect);
             for e in follow_ups {
@@ -97,7 +97,7 @@ where
 
     fn do_fetch_rss(&self, url: &str, feed_id: Uuid, download_dir: &str) -> Vec<Effect> {
         if download_dir.is_empty() {
-            eprintln!("[executor] skip fetch: download_dir is empty for feed={feed_id}");
+            log::warn!("skip fetch: download_dir is empty for feed={feed_id}");
             return vec![];
         }
         match self.rss.fetch(url) {
@@ -113,7 +113,7 @@ where
                 vec![]
             }
             Err(e) => {
-                eprintln!("[executor] RSS fetch failed for {url}: {e}");
+                log::warn!("RSS fetch failed for {url}: {e}");
                 vec![]
             }
         }
@@ -137,10 +137,7 @@ where
                     Ok(bytes)
                 })() {
                     Ok(bytes) => {
-                        println!(
-                            "[executor] torrent downloaded: {} bytes, feed={feed_id}",
-                            bytes.len()
-                        );
+                        log::info!("torrent downloaded: {} bytes, feed={feed_id}", bytes.len());
                         effect_tx
                             .send(Effect::AddTorrentBytes {
                                 data: bytes,
@@ -151,7 +148,7 @@ where
                             .ok();
                     }
                     Err(e) => {
-                        eprintln!("[executor] torrent download failed: {e}");
+                        log::warn!("torrent download failed: {e}");
                     }
                 }
             });
@@ -159,7 +156,7 @@ where
         } else {
             match self.downloader.add_uri(uri, dir) {
                 Ok(infohash) => {
-                    println!("[executor] download started: infohash={infohash}, feed={feed_id}");
+                    log::info!("download started: infohash={infohash}, feed={feed_id}");
                     self.event_tx
                         .send(Event::DownloadStarted {
                             infohash,
@@ -169,7 +166,7 @@ where
                         .ok();
                 }
                 Err(e) => {
-                    eprintln!("[executor] add torrent failed: {e}");
+                    log::warn!("add torrent failed: {e}");
                 }
             }
             vec![]
@@ -185,9 +182,7 @@ where
     ) -> Vec<Effect> {
         match self.downloader.add_torrent_bytes(data, dir) {
             Ok(infohash) if !infohash.is_empty() => {
-                println!(
-                    "[executor] download started: infohash={infohash}, feed={feed_id}"
-                );
+                log::info!("download started: infohash={infohash}, feed={feed_id}");
                 self.event_tx
                     .send(Event::DownloadStarted {
                         infohash,
@@ -197,12 +192,10 @@ where
                     .ok();
             }
             Ok(_) => {
-                eprintln!(
-                    "[executor] add_torrent_bytes returned empty infohash for feed={feed_id}"
-                );
+                log::warn!("add_torrent_bytes returned empty infohash for feed={feed_id}");
             }
             Err(e) => {
-                eprintln!("[executor] add_torrent_bytes failed: {e}");
+                log::warn!("add_torrent_bytes failed: {e}");
             }
         }
         vec![]
@@ -217,22 +210,22 @@ where
         download_dir: &str,
         expected_episode: u32,
     ) -> Vec<Effect> {
-        println!(
-            "[executor] handle_completed: infohash={} feed={} anime={}",
+        log::info!(
+            "handle_completed: infohash={} feed={} anime={}",
             &infohash[..infohash.len().min(16)],
             feed_id,
             anime.name
         );
         let files = match self.downloader.list_files(infohash) {
             Ok(f) => {
-                println!("[executor]   list_files: {} file(s)", f.len());
+                log::debug!("list_files: {} file(s)", f.len());
                 for fi in &f {
-                    println!("[executor]     - {}", fi.name);
+                    log::debug!("  - {}", fi.name);
                 }
                 f
             }
             Err(e) => {
-                eprintln!("[executor]   list_files failed: {e}");
+                log::warn!("list_files failed: {e}");
                 return vec![];
             }
         };
@@ -254,22 +247,23 @@ where
         let effects = Vec::new();
 
         for r in &resolved {
-            println!(
-                "[executor]   episode={} -> rename to '{}'",
-                r.key.episode, r.target_name
+            log::debug!(
+                "  episode={} -> rename to '{}'",
+                r.key.episode,
+                r.target_name
             );
 
             // Idempotent: if target already exists (crash recovery), skip move.
             if r.to.exists() {
-                println!("[executor]   already in library: {:?}", r.to);
+                log::debug!("already in library: {:?}", r.to);
             } else {
                 if let Some(parent) = r.to.parent() {
                     let _ = self.fs.ensure_dir(parent);
                 }
                 match self.fs.move_file(&r.from, &r.to) {
-                    Ok(()) => println!("[executor] moved: {:?} → {:?}", r.from, r.to),
+                    Ok(()) => log::info!("moved: {:?} → {:?}", r.from, r.to),
                     Err(e) => {
-                        eprintln!("[executor] move failed: {:?} → {:?}: {e}", r.from, r.to);
+                        log::warn!("move failed: {:?} → {:?}: {e}", r.from, r.to);
                         continue;
                     }
                 }
@@ -280,15 +274,11 @@ where
                 .downloader
                 .rename_file(infohash, &r.original_name, &r.target_name)
             {
-                Ok(true) => println!(
-                    "[executor]   aria2 renamed: '{}' → '{}'",
-                    r.original_name, r.target_name
-                ),
-                Ok(false) => println!(
-                    "[executor]   aria2 rename returned false for '{}'",
-                    r.original_name
-                ),
-                Err(e) => eprintln!("[executor]   aria2 rename failed: {e}"),
+                Ok(true) => {
+                    log::debug!("aria2 renamed: '{}' → '{}'", r.original_name, r.target_name)
+                }
+                Ok(false) => log::debug!("aria2 rename returned false for '{}'", r.original_name),
+                Err(e) => log::warn!("aria2 rename failed: {e}"),
             }
 
             // Notify logic: episode + path resolved, move complete.
@@ -317,7 +307,7 @@ where
                     .ok();
             }
             Err(e) => {
-                eprintln!("[executor] query_all failed: {e}");
+                log::warn!("query_all failed: {e}");
             }
         }
         vec![]
@@ -327,15 +317,9 @@ where
         match self.downloader.poll_completed() {
             Ok(tasks) if tasks.is_empty() => {}
             Ok(tasks) => {
-                println!(
-                    "[executor] poll_completed: {} task(s) complete",
-                    tasks.len()
-                );
+                log::info!("poll_completed: {} task(s) complete", tasks.len());
                 for task in tasks {
-                    println!(
-                        "[executor]   -> {}",
-                        &task.infohash[..task.infohash.len().min(16)]
-                    );
+                    log::debug!("  -> {}", &task.infohash[..task.infohash.len().min(16)]);
                     let _ = self.event_tx.send(Event::DownloaderNotification {
                         infohash: task.infohash,
                         status: crate::core::event::DownloadStatus::Completed,
@@ -343,7 +327,7 @@ where
                 }
             }
             Err(e) => {
-                eprintln!("[executor] poll_completed failed: {e}");
+                log::warn!("poll_completed failed: {e}");
             }
         }
         vec![]
@@ -353,7 +337,7 @@ where
         match self.downloader.poll_failed() {
             Ok(tasks) if tasks.is_empty() => {}
             Ok(tasks) => {
-                println!("[executor] poll_failed: {} task(s) failed", tasks.len());
+                log::info!("poll_failed: {} task(s) failed", tasks.len());
                 for task in tasks {
                     let _ = self.event_tx.send(Event::DownloaderNotification {
                         infohash: task.infohash,
@@ -362,7 +346,7 @@ where
                 }
             }
             Err(e) => {
-                eprintln!("[executor] poll_failed failed: {e}");
+                log::warn!("poll_failed failed: {e}");
             }
         }
         vec![]
