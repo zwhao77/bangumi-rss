@@ -300,6 +300,12 @@
             info.appendChild(form);
 
             window._bangumiInfo = data.bangumi_info || null;
+
+            // Auto-fill Bangumi ID from preview data
+            const idInput = document.getElementById('bangumiId');
+            if (idInput && data.bangumi_info && data.bangumi_info.bangumi_id) {
+                idInput.value = data.bangumi_info.bangumi_id;
+            }
         }
 
         async function confirmFeed() {
