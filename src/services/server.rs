@@ -47,6 +47,7 @@ pub fn start(event_tx: Sender<Event>) {
             ("/api/downloads", _) => handle_list_downloads(request, &tx),
             ("/api/downloads/refresh", &Method::Post) => handle_refresh(request, &tx),
             (u, _) if u.starts_with("/api/bangumi/image") => handle_image_proxy(request, u),
+            (u, _) if u.starts_with("/api/bangumi/subject") => handle_bangumi_subject(request, u),
             (u, _) if u.starts_with("/api/bangumi/search") => handle_bangumi_search(request, u),
             _ => {
                 let _ =
@@ -237,6 +238,22 @@ fn percent_decode(s: &str) -> String {
         }
     }
     String::from_utf8(bytes).unwrap_or_default()
+}
+
+/// GET /api/bangumi/subject?id=<number>
+/// Fetch Bangumi metadata by subject ID directly.
+fn handle_bangumi_subject(req: tiny_http::Request, path: &str) -> Result<(), ()> {
+    let id_str = path.strip_prefix("/api/bangumi/subject?id=").unwrap_or("");
+    let id: u32 = match id_str.parse() {
+        Ok(n) => n,
+        Err(_) => return respond(req, 400, r#"{"success":false,"message":"invalid id"}"#),
+    };
+
+    match crate::services::bangumi::detail(id) {
+        Ok(Some(info)) => respond_ok(req, &serde_json::json!({"success":true,"bangumi_info":info}).to_string()),
+        Ok(None) => respond_ok(req, r#"{"success":false,"message":"not found"}"#),
+        Err(e) => respond_ok(req, &serde_json::json!({"success":false,"message":format!("{e}")}).to_string()),
+    }
 }
 
 /// GET /api/bangumi/search?name=<url_encoded>

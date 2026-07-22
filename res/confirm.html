@@ -285,6 +285,11 @@
     <label class="label">番剧名</label>
     <input id="animeName" value="${data.suggested_name || ''}">
     <button onclick="searchBangumi()" id="searchBtn" style="margin-top:0;padding:6px;font-size:13px">搜索 Bangumi</button>
+    <label class="label">Bangumi ID（可选）</label>
+    <div style="display:flex;gap:6px;align-items:center">
+      <input id="bangumiId" type="number" placeholder="留空自动搜索" style="flex:1">
+      <button onclick="lookupBangumiId()" style="width:auto;padding:6px 12px;font-size:13px;white-space:nowrap">ID 查询</button>
+    </div>
     <label class="label">季数</label>
     <select id="season">
       ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(s => `<option ${s == data.suggested_season ? 'selected' : ''}>S${s}</option>`).join('')}
@@ -322,6 +327,7 @@
                 const data = await resp.json();
                 if (data.success && data.bangumi_info) {
                     window._bangumiInfo = data.bangumi_info;
+                    document.getElementById('bangumiId').value = data.bangumi_info.bangumi_id;
                     renderBangumiCard(data.bangumi_info);
                 } else {
                     document.querySelector('.bgm-card')?.remove();
@@ -332,6 +338,25 @@
             } finally {
                 btn.disabled = false;
                 btn.textContent = '搜索 Bangumi';
+            }
+        }
+
+        async function lookupBangumiId() {
+            const id = document.getElementById('bangumiId').value.trim();
+            if (!id) return;
+            try {
+                const resp = await fetch('/api/bangumi/subject?id=' + id);
+                const data = await resp.json();
+                if (data.success && data.bangumi_info) {
+                    window._bangumiInfo = data.bangumi_info;
+                    document.getElementById('animeName').value = data.bangumi_info.name_cn;
+                    renderBangumiCard(data.bangumi_info);
+                } else {
+                    document.querySelector('.bgm-card')?.remove();
+                    window._bangumiInfo = null;
+                }
+            } catch (e) {
+                console.error('lookupBangumiId failed', e);
             }
         }
 
