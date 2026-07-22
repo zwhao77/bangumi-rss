@@ -37,7 +37,7 @@ pub fn start(event_tx: Sender<Event>) {
         let tx = tx.clone();
         let url = request.url().to_string();
         let method = request.method().clone();
-        log::debug!("-> {} {}", method, url);
+        log::info!("-> {} {}", method, url);
         let result = match (&*url, &method) {
             ("/", _) => handle_index(request),
             ("/api/feeds/preview", &Method::Post) => handle_preview(request),
@@ -51,6 +51,7 @@ pub fn start(event_tx: Sender<Event>) {
             (u, _) if u.starts_with("/api/bangumi/subject") => handle_bangumi_subject(request, u),
             (u, _) if u.starts_with("/api/bangumi/search") => handle_bangumi_search(request, u),
             _ => {
+                log::debug!("<- 404 {}", url);
                 let _ =
                     request.respond(tiny_http::Response::from_string("404").with_status_code(404));
                 Ok(())
@@ -64,6 +65,21 @@ pub fn start(event_tx: Sender<Event>) {
 
 // ── Response helpers ──
 
+/// Truncate a string for logging: show head + tail with a truncation marker.
+fn truncate_for_log(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        return s.to_string();
+    }
+    let head = max_len * 3 / 4;
+    let tail = max_len / 4;
+    format!(
+        "{}...<{} chars omitted>...{}",
+        &s[..head],
+        s.len().saturating_sub(head + tail),
+        &s[s.len() - tail..]
+    )
+}
+
 /// Try to bind to a specific port. Returns `None` if the port is unavailable.
 fn try_bind(port: u16) -> Option<tiny_http::Server> {
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().ok()?;
@@ -71,6 +87,8 @@ fn try_bind(port: u16) -> Option<tiny_http::Server> {
 }
 
 fn respond(req: tiny_http::Request, code: u16, body: &str) -> Result<(), ()> {
+    let truncated = truncate_for_log(body, 500);
+    log::debug!("<- {} {} body={}", code, req.url(), truncated);
     req.respond(
         Response::from_string(body)
             .with_status_code(code)
@@ -86,6 +104,7 @@ fn respond_ok(req: tiny_http::Request, json: &str) -> Result<(), ()> {
 // ── Route handlers ──
 
 fn handle_index(req: tiny_http::Request) -> Result<(), ()> {
+    log::debug!("<- 200 {} body=<HTML {} chars>", req.url(), CONFIRM_PAGE.len());
     req.respond(
         Response::from_string(CONFIRM_PAGE)
             .with_header(HTML_TYPE.parse::<tiny_http::Header>().unwrap()),
@@ -208,6 +227,8 @@ fn handle_image_proxy(req: tiny_http::Request, path: &str) -> Result<(), ()> {
             let ct = resp.content_type().to_string();
             let mut buf = Vec::new();
             if resp.into_reader().read_to_end(&mut buf).is_ok() {
+                let len = buf.len();
+                log::debug!("<- 200 {} body=<image {} bytes, {ct}>", req.url(), len);
                 let _ = req.respond(
                     tiny_http::Response::from_data(buf).with_header(
                         format!("Content-Type: {ct}")
@@ -220,6 +241,7 @@ fn handle_image_proxy(req: tiny_http::Request, path: &str) -> Result<(), ()> {
         }
         Err(e) => log::warn!("image proxy failed for {img_url}: {e}"),
     }
+    log::debug!("<- 404 {}", req.url());
     let _ = req.respond(tiny_http::Response::from_string("").with_status_code(404));
     Ok(())
 }
