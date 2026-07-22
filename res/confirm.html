@@ -267,7 +267,7 @@
                 card.innerHTML = `
       ${bgm.image_url ? `<img src="${bgm.image_url}" onerror="this.style.display='none'">` : ''}
       <div class="info">
-        <strong>${bgm.name_cn}</strong>
+        <strong>${bgm.name_cn || bgm.name}</strong>
         ${bgm.rank ? `<span class="tag">#${bgm.rank}</span>` : ''}
         <span class="rating">${bgm.rating ? '★ ' + bgm.rating.toFixed(1) : ''}</span>
         <span class="tag">${bgm.air_date || ''}${bgm.air_weekday ? ' ' + weekday[bgm.air_weekday] : ''}</span>
@@ -301,10 +301,14 @@
 
             window._bangumiInfo = data.bangumi_info || null;
 
-            // Auto-fill Bangumi ID from preview data
+            // Auto-fill Bangumi ID and anime name from preview data
             const idInput = document.getElementById('bangumiId');
             if (idInput && data.bangumi_info && data.bangumi_info.bangumi_id) {
                 idInput.value = data.bangumi_info.bangumi_id;
+            }
+            const nameInput = document.getElementById('animeName');
+            if (nameInput && data.bangumi_info && data.bangumi_info.name_cn) {
+                nameInput.value = data.bangumi_info.name_cn;
             }
         }
 
