@@ -1,3 +1,4 @@
+mod config;
 mod core;
 mod services;
 mod traits;
@@ -10,6 +11,9 @@ use std::time::Duration;
 
 use crossbeam_channel::bounded;
 
+use envconfig::Envconfig;
+
+use crate::config::{Config, Downloader};
 use crate::core::effect::Effect;
 use crate::core::event::Event;
 use crate::core::state::AppState;
@@ -24,49 +28,45 @@ fn main() -> anyhow::Result<()> {
         .format_timestamp_millis()
         .init();
 
+    let config = Config::init_from_env()?;
+
+    // Propagate config to stateless modules.
+    crate::services::bangumi::init_api_base(config.bangumi_api_base);
+
     // ── channels ──
     let (event_tx, event_rx) = bounded::<Event>(CHANNEL_CAPACITY);
     let (effect_tx, effect_rx) = bounded::<Effect>(CHANNEL_CAPACITY);
 
     // ── shared state (owned by logic thread) ──
-    let mut state = AppState::load().unwrap_or_default();
+    let mut state = AppState::load(config.data_dir.as_deref().unwrap_or(".")).unwrap_or_default();
 
     // Fill dirs from env if not already set in state.
     if state.download_dir.is_empty() {
-        state.download_dir = std::env::var("DOWNLOAD_DIR")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| {
-                log::warn!("DOWNLOAD_DIR not set, using /downloads");
-                "/downloads".into()
-            });
+        state.download_dir = config.download_dir.unwrap_or_else(|| "/downloads".into());
     }
     if state.library_dir.is_empty() {
-        state.library_dir = std::env::var("LIBRARY_DIR")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| {
-                log::warn!("LIBRARY_DIR not set, using /anime");
-                "/anime".into()
-            });
+        state.library_dir = config.library_dir.unwrap_or_else(|| "/anime".into());
     }
 
     // ── services (trait objects behind Arc) ──
-    let use_mock = std::env::var("MOCK_DOWNLOADER").is_ok();
-    let backend = std::env::var("DOWNLOADER").unwrap_or_else(|_| "aria2".into());
-
-    let rss_client: Arc<dyn crate::traits::RssFetcher> = if use_mock {
+    let rss_client: Arc<dyn crate::traits::RssFetcher> = if config.mock_downloader {
         Arc::new(services::MockRssClient)
     } else {
         Arc::new(services::RssClient)
     };
 
-    let downloader: Arc<dyn crate::traits::TorrentDownloader> = if use_mock {
+    let downloader: Arc<dyn crate::traits::TorrentDownloader> = if config.mock_downloader {
         Arc::new(services::MockDownloader::new())
-    } else if backend == "qbittorrent" {
-        Arc::new(services::QbittorrentDownloader::from_env())
+    } else if matches!(config.downloader, Downloader::Qbittorrent) {
+        Arc::new(services::QbittorrentDownloader::from_config(
+            config.qbittorrent_url,
+            config.qbittorrent_user,
+            config.qbittorrent_pass,
+        ))
     } else {
-        Arc::new(services::Aria2Downloader::from_env())
+        Arc::new(services::Aria2Downloader::with_rpc_url(
+            config.aria2_rpc_url,
+        ))
     };
 
     let fs_ops = Arc::new(services::RealFileSystem);
@@ -74,21 +74,15 @@ fn main() -> anyhow::Result<()> {
 
     // ── event sources (publish to event_tx) ──
 
-    // Combined timer: RSS ticks + download poll
     let mut tm = TimerManager::new();
     let timer_shutdown = tm.shutdown_handle();
-    let rss_interval = Duration::from_secs(
-        std::env::var("RSS_INTERVAL")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(900),
-    );
+    let rss_interval = Duration::from_secs(config.rss_interval);
     {
         let tx = event_tx.clone();
         tm.add(rss_interval, move || {
             if tx.send(Event::RssTickAll).is_err() {
                 log::error!("logic channel disconnected, RSS tick dropped");
-                return false; // stop this timer
+                return false;
             }
             true
         });
@@ -105,12 +99,17 @@ fn main() -> anyhow::Result<()> {
     }
     thread::spawn(move || tm.run());
 
-    // HTTP API server (logs on exit, but process continues)
-    let tx = event_tx.clone();
-    thread::spawn(move || {
-        start_server(tx);
-        log::warn!("HTTP server thread exited");
-    });
+    // HTTP API server — skippable via NO_SERVER.
+    if !config.no_server {
+        let tx = event_tx.clone();
+        let port = config.port;
+        thread::spawn(move || {
+            start_server(tx, port);
+            log::warn!("HTTP server thread exited");
+        });
+    } else {
+        log::info!("HTTP server disabled (NO_SERVER set)");
+    }
 
     // ── effect executor (consumes effects, may publish DownloadStarted events) ──
     let executor = EffectExecutor {
@@ -129,7 +128,6 @@ fn main() -> anyhow::Result<()> {
         crate::core::event::run_logic(event_rx, effect_tx, state);
     });
 
-    // ── main thread: wait for logic to exit, then clean up ──
     logic_handle.join().ok();
     timer_shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
     log::info!("shutdown complete");

@@ -39,8 +39,8 @@ pub struct AppState {
 impl AppState {
     // ── persistence ──
 
-    pub fn load() -> Option<Self> {
-        let path = data_path();
+    pub fn load(data_dir: &str) -> Option<Self> {
+        let path = data_path(data_dir);
         if !path.exists() {
             return None;
         }
@@ -49,7 +49,7 @@ impl AppState {
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
-        let path = data_path();
+        let path = data_path(&std::env::var("DATA_DIR").unwrap_or_default());
         let tmp = path.with_extension("tmp");
 
         let content = serde_json::to_string_pretty(self)?;
@@ -130,9 +130,10 @@ impl AppState {
     }
 }
 
-fn data_path() -> PathBuf {
-    std::env::var("DATA_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("state.json")
+fn data_path(data_dir: &str) -> PathBuf {
+    if data_dir.is_empty() {
+        PathBuf::from("state.json")
+    } else {
+        PathBuf::from(data_dir).join("state.json")
+    }
 }

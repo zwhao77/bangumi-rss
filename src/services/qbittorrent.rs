@@ -14,29 +14,29 @@ use crate::types::{CompletedDownload, DownloadSnapshot, DownloadState, TorrentFi
 /// Concrete downloader backed by qBittorrent's Web API.
 pub struct QbittorrentDownloader {
     api_url: String,
+    username: String,
+    password: String,
     /// Cached SID cookie.  Refreshed automatically on 403.
     sid: Mutex<Option<String>>,
 }
 
 impl QbittorrentDownloader {
-    pub fn from_env() -> Self {
-        let base =
-            std::env::var("QBITTORRENT_URL").unwrap_or_else(|_| "http://localhost:8080".into());
+    pub fn from_config(url: String, username: String, password: String) -> Self {
         Self {
-            api_url: base.trim_end_matches('/').to_string(),
+            api_url: url.trim_end_matches('/').to_string(),
             sid: Mutex::new(None),
+            username,
+            password,
         }
     }
 
     // ── Session management ──
 
     fn login(&self) -> Option<String> {
-        let username = std::env::var("QBITTORRENT_USER").unwrap_or_else(|_| "admin".into());
-        let password = std::env::var("QBITTORRENT_PASS").unwrap_or_else(|_| "adminadmin".into());
         let body = format!(
             "username={}&password={}",
-            urlencoding(&username),
-            urlencoding(&password)
+            urlencoding(&self.username),
+            urlencoding(&self.password)
         );
 
         let resp = ureq::post(&format!("{}/api/v2/auth/login", self.api_url))

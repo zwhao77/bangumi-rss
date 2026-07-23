@@ -17,11 +17,8 @@ pub struct Aria2Downloader {
 }
 
 impl Aria2Downloader {
-    pub fn from_env() -> Self {
-        Self {
-            rpc_url: std::env::var("ARIA2_RPC_URL")
-                .unwrap_or_else(|_| "http://localhost:6800/jsonrpc".into()),
-        }
+    pub fn with_rpc_url(rpc_url: String) -> Self {
+        Self { rpc_url }
     }
 
     // ── Low-level JSON-RPC ──

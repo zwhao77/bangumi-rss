@@ -76,12 +76,7 @@ fn truncate(s: &str, max: usize) -> String {
 
 // ── Server ──
 
-pub fn start(event_tx: Sender<Event>) {
-    let preferred: u16 = std::env::var("PORT")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(7893);
-
+pub fn start(event_tx: Sender<Event>, preferred: u16) {
     let server = try_bind(preferred).unwrap_or_else(|| {
         log::info!("port {preferred} unavailable, trying OS-assigned");
         try_bind(0).unwrap_or_else(|| {
@@ -160,7 +155,7 @@ pub fn start(event_tx: Sender<Event>) {
 
 // ── Unified response sender ──
 
-fn respond(mut request: tiny_http::Request, resp: AppResponse, url: &str) {
+fn respond(request: tiny_http::Request, resp: AppResponse, url: &str) {
     // Extract metadata before moving `resp`.
     let code = match &resp {
         AppResponse::Text { code, .. } => *code,

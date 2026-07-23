@@ -7,11 +7,25 @@
 //! Proxy: respects `HTTP_PROXY` / `HTTPS_PROXY` env vars (ureq handles this).
 
 use serde::Deserialize;
+use std::sync::OnceLock;
 
 use crate::types::BangumiInfo;
 
 const UA: &str = "ezio/bangumi-rss";
-const BASE: &str = "https://api.bgm.tv";
+
+static API_BASE: OnceLock<String> = OnceLock::new();
+
+/// Set by main() from Config.bangumi_api_base.
+pub fn init_api_base(url: String) {
+    let _ = API_BASE.set(url);
+}
+
+fn base_url() -> &'static str {
+    API_BASE
+        .get()
+        .map(|s| s.as_str())
+        .unwrap_or("https://api.bgm.tv")
+}
 
 // ── Response types ──
 
@@ -82,7 +96,7 @@ impl BgmImages {
 pub fn search(keyword: &str) -> anyhow::Result<Option<u32>> {
     let url = format!(
         "{}/search/subject/{}?responseGroup=medium&max_results=5",
-        BASE,
+        base_url(),
         url_encode(keyword)
     );
     let resp: BgmSearchResponse = http_get(&url)?.into_json()?;
@@ -94,7 +108,7 @@ pub fn search(keyword: &str) -> anyhow::Result<Option<u32>> {
 
 /// Fetch full metadata for a subject.
 pub fn detail(subject_id: u32) -> anyhow::Result<Option<BangumiInfo>> {
-    let url = format!("{}/subject/{}?responseGroup=large", BASE, subject_id);
+    let url = format!("{}/subject/{}?responseGroup=large", base_url(), subject_id);
     let resp: BgmSubjectResponse = http_get(&url)?.into_json()?;
 
     if resp.error.is_some() || (resp.name_cn.is_empty() && resp.name.is_empty()) {
