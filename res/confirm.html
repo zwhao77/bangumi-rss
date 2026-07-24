@@ -151,7 +151,7 @@
         }
 
         .bgm-card img {
-            width: 64px;
+            width: 90px;
             border-radius: 4px;
             flex-shrink: 0
         }
@@ -182,25 +182,37 @@
             border-radius: 6px;
             display: flex;
             gap: 10px;
-            align-items: flex-start
+            max-height: 112px;
+            overflow: hidden
         }
 
         #feeds li img {
-            width: 60px;
-            height: auto;
+            width: 80px;
+            height: 112px;
+            object-fit: cover;
             border-radius: 4px;
             flex-shrink: 0
         }
 
         .feed-info {
             flex: 1;
-            min-width: 0
+            min-width: 0;
+            display: flex;
+            flex-direction: column
         }
 
         .feed-meta {
             font-size: .8em;
             color: #888;
-            margin-top: 2px
+            margin-top: 2px;
+            flex-shrink: 0
+        }
+
+        .feed-meta.feed-summary {
+            flex: 1;
+            overflow-y: auto;
+            margin-top: 2px;
+            min-height: 0
         }
 
         .rating {
@@ -437,7 +449,7 @@
                         ? (f.bangumi_info.eps_count ? ` · ${f.bangumi_info.eps_count} 集` : ' · 未完结')
                         : '';
                     const summary = f.bangumi_info && f.bangumi_info.summary
-                        ? `<div class="feed-meta">${f.bangumi_info.summary}</div>`
+                        ? `<div class="feed-meta feed-summary">${f.bangumi_info.summary}</div>`
                         : '';
                     return `<li>${img}<div class="feed-info"><strong>${f.name}</strong> (S${f.season}) ${rating}<div class="feed-meta">${f.url}${eps}</div>${summary}</div></li>`;
                 })
