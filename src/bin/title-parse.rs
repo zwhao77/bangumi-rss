@@ -26,21 +26,36 @@ fn parse_title(raw: &str) {
             println!("  name:     {}", p.name.as_deref().unwrap_or("-"));
             println!("  name_jp:  {}", p.name_jp.as_deref().unwrap_or("-"));
             println!("  group:    {}", p.group.as_deref().unwrap_or("-"));
-            println!("  season:   {}", p.season.map_or("-".into(), |s: u8| format!("S{s}")));
-            println!("  episode:  {}", p.episode.map_or("-".into(), |e: f32| e.to_string()));
+            println!(
+                "  season:   {}",
+                p.season.map_or("-".into(), |s: u8| format!("S{s}"))
+            );
+            println!(
+                "  episode:  {}",
+                p.episode.map_or("-".into(), |e: f32| e.to_string())
+            );
         }
         None => println!("  ❌ parse failed"),
     }
 }
 
 fn preview_url(url: &str) {
-    let body = match ureq::get(url).call().and_then(|r| r.into_string().map_err(|e| e.into())) {
+    let body = match ureq::get(url)
+        .call()
+        .and_then(|r| r.into_string().map_err(|e| e.into()))
+    {
         Ok(s) => s,
-        Err(e) => { eprintln!("❌ HTTP: {e}"); return; }
+        Err(e) => {
+            eprintln!("❌ HTTP: {e}");
+            return;
+        }
     };
     let ch = match body.parse::<rss::Channel>() {
         Ok(c) => c,
-        Err(e) => { eprintln!("❌ XML: {e}"); return; }
+        Err(e) => {
+            eprintln!("❌ XML: {e}");
+            return;
+        }
     };
 
     println!("channel: {}", ch.title());
@@ -50,8 +65,11 @@ fn preview_url(url: &str) {
     let mut first_name = String::new();
     for (i, item) in ch.items().iter().enumerate() {
         let title = item.title().unwrap_or("-");
-        let torrent_url = item.enclosure().map(|e| e.url())
-            .or_else(|| item.link()).unwrap_or("");
+        let torrent_url = item
+            .enclosure()
+            .map(|e| e.url())
+            .or_else(|| item.link())
+            .unwrap_or("");
 
         println!("── [{i}] ──────────────────────");
         println!("  raw:  {title}");
@@ -62,10 +80,19 @@ fn preview_url(url: &str) {
         match tokenizer::parse_torrent_title(title) {
             Some(p) => {
                 let mut parts = Vec::new();
-                if let Some(n) = &p.name { parts.push(format!("name=\"{n}\"")); first_name = n.clone(); }
-                if let Some(s) = p.season { parts.push(format!("S{s}")); }
-                if let Some(e) = p.episode { parts.push(format!("ep={e}")); }
-                if let Some(g) = &p.group { parts.push(format!("group=\"{g}\"")); }
+                if let Some(n) = &p.name {
+                    parts.push(format!("name=\"{n}\""));
+                    first_name = n.clone();
+                }
+                if let Some(s) = p.season {
+                    parts.push(format!("S{s}"));
+                }
+                if let Some(e) = p.episode {
+                    parts.push(format!("ep={e}"));
+                }
+                if let Some(g) = &p.group {
+                    parts.push(format!("group=\"{g}\""));
+                }
                 println!("  → {}", parts.join("  "));
             }
             None => println!("  → ❌"),
