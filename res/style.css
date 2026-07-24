@@ -15,13 +15,19 @@
     padding: 0;
 }
 
+html {
+    background: var(--color-bg);
+}
+
 body {
     font-family: system-ui, sans-serif;
     max-width: 520px;
     margin: 2em auto;
-    padding: 0 1rem;
+    padding: 0.5rem 1rem 1rem;
     color: var(--color-text);
-    background: #fff;
+    background: var(--color-card);
+    border-radius: var(--radius);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .08);
 }
 
 h2,
@@ -29,7 +35,6 @@ h3 {
     margin: 1em 0 0.5em;
 }
 
-/* 通用卡片 */
 .card {
     background: var(--color-card);
     border: 1px solid var(--color-border);
@@ -38,7 +43,6 @@ h3 {
     margin: 0.6rem 0;
 }
 
-/* 通用按钮 */
 .btn {
     display: inline-flex;
     align-items: center;
@@ -80,7 +84,6 @@ h3 {
     font-size: 0.75rem;
 }
 
-/* 通用标签 */
 .tag {
     display: inline-flex;
     align-items: center;
@@ -92,7 +95,6 @@ h3 {
     white-space: nowrap;
 }
 
-/* 通用表单 */
 input,
 select,
 textarea {
@@ -123,7 +125,6 @@ textarea {
     margin: 8px 0 4px;
 }
 
-/* 动漫卡片内部布局 */
 .anime-card {
     display: flex;
     gap: 0.6rem;
@@ -167,7 +168,15 @@ textarea {
     overflow: hidden;
 }
 
-.anime-card .title {
+.anime-card .title-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+}
+
+.anime-card .title-row .title {
+    flex: 1;
+    min-width: 0;
     font-weight: 600;
     font-size: 0.95rem;
     line-height: 1.3;
@@ -176,6 +185,11 @@ textarea {
     -webkit-box-orient: vertical;
     overflow: hidden;
     word-break: break-word;
+}
+
+.anime-card .title-row .btn {
+    flex-shrink: 0;
+    margin-top: 1px;
 }
 
 .anime-card .meta {
@@ -217,7 +231,21 @@ textarea {
     padding-right: 2px;
 }
 
-/* 进度条 */
+/* 全局细滚动条 */
+*::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: #ddd;
+    border-radius: 2px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: #bbb;
+}
+
 .progress-bar {
     background: #e0e0e0;
     border-radius: 4px;
@@ -233,12 +261,11 @@ textarea {
     transition: width 0.3s;
 }
 
-/* 弹窗 */
 .modal-overlay {
     display: none;
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: rgba(0, 0, 0, .4);
     z-index: 1000;
     justify-content: center;
     align-items: center;
@@ -253,19 +280,48 @@ textarea {
     border-radius: 10px;
     width: min(90vw, 520px);
     max-height: 90vh;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     padding: 20px 24px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .15);
 }
 
 .modal-box h3 {
-    margin-bottom: 12px;
+    margin: 0 0 12px;
+    font-size: .95rem;
 }
 
 .modal-grid {
     display: flex;
     gap: 14px;
     margin-bottom: 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--color-border);
+    align-items: flex-start;
+}
+
+.modal-cover {
+    overflow: hidden;
+    border-radius: 4px;
+    background: #f0f2f5;
+}
+
+.modal-cover img {
+    height: 100%;
+    width: auto;
+    display: block;
+    min-height: 60px;
+}
+
+.modal-cover:empty::after {
+    content: '无封面';
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    font-size: .7rem;
+    color: #999;
 }
 
 .modal-id-area {
@@ -285,17 +341,19 @@ textarea {
 }
 
 .meta-row {
-    font-size: 0.78rem;
-    color: var(--color-text-light);
+    font-size: .78rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 2px;
 }
 
-/* 弹窗中的表单使用通用 input/select，无需额外样式 */
 .modal-field {
     margin-bottom: 8px;
 }
 
 .modal-field label {
-    font-size: 0.72rem;
+    font-size: .72rem;
     color: #888;
     display: block;
     margin-bottom: 2px;
@@ -311,6 +369,21 @@ textarea {
     flex: 1;
 }
 
+.modal-summary-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    margin-bottom: 0;
+}
+
+.modal-summary-area textarea {
+    height: calc(90vh - 430px);
+    min-height: 60px;
+    max-height: calc(90vh - 280px);
+    resize: vertical;
+}
+
 .modal-actions {
     display: flex;
     gap: 8px;
@@ -323,12 +396,11 @@ textarea {
     padding: 8px;
     background: #f8f9fa;
     border-radius: 4px;
-    font-size: 0.78rem;
+    font-size: .78rem;
     color: #555;
 }
 
-/* 移动端 */
-@media (max-width: 480px) {
+@media (max-width:480px) {
     .anime-card .cover {
         width: 30%;
         max-width: 80px;
@@ -340,6 +412,6 @@ textarea {
     }
 
     .anime-card .title {
-        font-size: 0.9rem;
+        font-size: .9rem;
     }
 }

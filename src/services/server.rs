@@ -10,6 +10,7 @@ use tiny_http::{Method, Response};
 
 const JSON_TYPE: &str = "Content-Type: application/json; charset=utf-8";
 const HTML_TYPE: &str = "Content-Type: text/html; charset=utf-8";
+const CSS_TYPE: &str = "Content-Type: text/css; charset=utf-8";
 
 /// Unified response type — every handler returns this, `respond()` sends it.
 enum AppResponse {
@@ -112,6 +113,7 @@ pub fn start(event_tx: Sender<Event>, preferred: u16) {
         let resp = match (route, method) {
             // ═══ / ═══
             (None, _) if path == "/" => handle_index(),
+            (None, _) if path == "/style.css" => handle_style_css(),
 
             // ═══ /api/feeds ═══
             (Some(Route::Feeds), Method::Get) => handle_list_feeds(&tx),
@@ -229,8 +231,16 @@ fn try_bind(port: u16) -> Option<tiny_http::Server> {
 fn handle_index() -> AppResponse {
     AppResponse::Text {
         code: 200,
-        body: CONFIRM_PAGE.into(),
+        body: load_confirm_page(),
         content_type: HTML_TYPE,
+    }
+}
+
+fn handle_style_css() -> AppResponse {
+    AppResponse::Text {
+        code: 200,
+        body: load_style_css(),
+        content_type: CSS_TYPE,
     }
 }
 
@@ -513,4 +523,12 @@ fn handle_bangumi_search(url: &str) -> AppResponse {
     }
 }
 
-const CONFIRM_PAGE: &str = include_str!("../../res/confirm.html");
+fn load_confirm_page() -> String {
+    std::fs::read_to_string("res/index.html")
+        .unwrap_or_else(|_| include_str!("../../res/index.html").to_string())
+}
+
+fn load_style_css() -> String {
+    std::fs::read_to_string("res/style.css")
+        .unwrap_or_else(|_| include_str!("../../res/style.css").to_string())
+}

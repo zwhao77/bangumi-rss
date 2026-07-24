@@ -5,65 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>添加番剧订阅</title>
-    <style>
-        :root {
-            --color-primary: #4a90d9;
-            --color-bg: #f5f5f5;
-            --color-card: #fff;
-            --color-border: #e0e0e0;
-            --color-text: #222;
-            --color-text-light: #666;
-            --radius: 6px;
-            font-size: 16px;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: system-ui, sans-serif; max-width: 520px; margin: 2em auto; padding: 0 1rem; color: var(--color-text); background: #fff; }
-        h2, h3 { margin: 1em 0 0.5em; }
-        .card { background: var(--color-card); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 0.6rem; margin: 0.6rem 0; }
-        .btn { display: inline-flex; align-items: center; justify-content: center; padding: 8px 16px; border: 1px solid transparent; border-radius: var(--radius); font-size: 0.9rem; cursor: pointer; background: var(--color-primary); color: #fff; font-weight: 600; transition: opacity 0.2s; width: auto; }
-        .btn:hover { opacity: 0.85; }
-        .btn:disabled { opacity: 0.6; cursor: wait; }
-        .btn-outline { background: none; border: 1px solid var(--color-border); color: var(--color-text-light); }
-        .btn-outline:hover { background: #f0f0f0; opacity: 1; }
-        .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
-        .tag { display: inline-flex; align-items: center; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; background: #e8f0fe; color: #1a73e8; white-space: nowrap; }
-        input, select, textarea { width: 100%; padding: 8px 10px; font-size: 0.9rem; border: 1px solid var(--color-border); border-radius: var(--radius); background: #fff; }
-        input:focus, select:focus, textarea:focus { outline: 2px solid var(--color-primary); border-color: transparent; }
-        textarea { resize: vertical; min-height: 60px; }
-        .label { font-size: 0.8rem; color: var(--color-text-light); display: block; margin: 8px 0 4px; }
-        .anime-card { display: flex; gap: 0.6rem; align-items: flex-start; }
-        .anime-card .cover { width: 28%; max-width: 100px; flex-shrink: 0; height: 8.5rem; min-height: 5rem; overflow: hidden; border-radius: 4px; background: #f0f2f5; }
-        .anime-card .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .anime-card .cover:empty::after { content: '无封面'; display: flex; align-items: center; justify-content: center; height: 100%; font-size: 0.75rem; color: #999; }
-        .anime-card .info { flex: 1; min-width: 0; height: 8.5rem; display: flex; flex-direction: column; overflow: hidden; }
-        .anime-card .title { font-weight: 600; font-size: 0.95rem; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
-        .anime-card .meta { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.25rem; font-size: 0.8rem; align-items: center; }
-        .anime-card .rss-link-row { display: flex; align-items: center; gap: 4px; font-size: 0.75rem; color: #888; margin-top: 0.2rem; flex-shrink: 0; }
-        .rss-link-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #333; }
-        .anime-card .summary { flex: 1; overflow-y: auto; font-size: 0.78rem; line-height: 1.4; color: #555; margin-top: 0.25rem; min-height: 0; padding-right: 2px; }
-        .progress-bar { background: #e0e0e0; border-radius: 4px; height: 6px; margin: 4px 0; overflow: hidden; }
-        .progress-fill { background: var(--color-primary); height: 100%; border-radius: 4px; transition: width 0.3s; }
-        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 1000; justify-content: center; align-items: center; }
-        .modal-overlay.active { display: flex; }
-        .modal-box { background: #fff; border-radius: 10px; width: min(90vw,520px); max-height: 90vh; overflow-y: auto; padding: 20px 24px; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
-        .modal-box h3 { margin-bottom: 12px; }
-        .modal-grid { display: flex; gap: 14px; margin-bottom: 14px; }
-        .modal-id-area { flex: 1; display: flex; flex-direction: column; gap: 6px; }
-        .id-row { display: flex; gap: 4px; }
-        .id-row input { flex: 1; }
-        .meta-row { font-size: .78rem; color: var(--color-text-light); }
-        .modal-field { margin-bottom: 8px; }
-        .modal-field label { font-size: .72rem; color: #888; display: block; margin-bottom: 2px; }
-        .inline-group { display: flex; gap: 8px; align-items: center; }
-        .inline-group>* { flex: 1; }
-        .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
-        #modalRssInfo { margin-top: 8px; padding: 8px; background: #f8f9fa; border-radius: 4px; font-size: .78rem; color: #555; }
-        @media (max-width:480px) {
-            .anime-card .cover { width: 30%; max-width: 80px; height: 7.5rem; }
-            .anime-card .info { height: 7.5rem; }
-            .anime-card .title { font-size: .9rem; }
-        }
-    </style>
+    <link rel="stylesheet" href="/style.css">
 </head>
 
 <body>
@@ -71,19 +13,36 @@
 
     <div id="step1" class="card">
         <span class="label">输入 RSS 链接</span>
-        <input id="url" type="url" placeholder="https://mikanani.me/RSS/Classic/...">
-        <button id="previewBtn" class="btn" onclick="previewFeed()">获取番剧信息</button>
+        <div style="display:flex;gap:6px">
+            <input id="url" type="url" placeholder="https://mikanani.me/RSS/Classic/..." style="flex:1"
+                onkeydown="if(event.key==='Enter')previewFeed()">
+            <button id="previewBtn" class="btn" onclick="previewFeed()" style="flex-shrink:0">获取番剧信息</button>
+        </div>
     </div>
 
     <div id="result" class="card" style="display:none"></div>
 
-    <h3 style="margin-top:1.5em">已订阅
-        <button onclick="loadFeeds()" class="btn btn-sm">刷新</button>
+    <h3 style="margin-top:1.5em;display:flex;justify-content:space-between;align-items:center">已订阅
+        <button onclick="loadFeeds()" class="btn btn-sm" style="padding:4px;line-height:0"><svg
+                xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white"
+                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 2v6h-6" />
+                <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+                <path d="M3 22v-6h6" />
+                <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+            </svg></button>
     </h3>
     <div id="feeds"></div>
 
-    <h3 style="margin-top:1.5em">下载进度
-        <button onclick="refreshAndLoad()" class="btn btn-sm">刷新</button>
+    <h3 style="margin-top:1.5em;display:flex;justify-content:space-between;align-items:center">下载进度
+        <button onclick="refreshAndLoad()" class="btn btn-sm" style="padding:4px;line-height:0"><svg
+                xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white"
+                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 2v6h-6" />
+                <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+                <path d="M3 22v-6h6" />
+                <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+            </svg></button>
     </h3>
     <div id="downloads"></div>
 
@@ -96,20 +55,32 @@
                 <div class="modal-id-area">
                     <div class="id-row">
                         <input id="modalBgmId" type="number" placeholder="Bangumi ID">
-                        <button id="modalIdBtn">ID 查询</button>
-                        <button id="modalSearchBtn">搜索</button>
+                        <button id="modalIdBtn" class="btn btn-sm">查号</button>
+                    </div>
+                    <div class="id-row">
+                        <input id="modalSearchInput" type="text" placeholder="按名称搜索">
+                        <button id="modalSearchBtn" class="btn btn-sm">搜名</button>
                     </div>
                     <div class="meta-row" id="modalMeta"></div>
+                    <div class="modal-field" style="margin-top:6px;margin-bottom:4px">
+                        <label>订阅名称</label>
+                        <input id="modalFeedName" placeholder="卡片显示名称">
+                    </div>
                 </div>
             </div>
 
+            <!-- 中文名 + 原名 -->
             <div class="modal-field">
-                <label>中文名</label>
-                <input id="modalNameCn" placeholder="中文名">
-            </div>
-            <div class="modal-field">
-                <label>原名</label>
-                <input id="modalName" placeholder="原名">
+                <div class="inline-group">
+                    <div>
+                        <label>中文名</label>
+                        <input id="modalNameCn" placeholder="中文名">
+                    </div>
+                    <div>
+                        <label>原名</label>
+                        <input id="modalName" placeholder="原名">
+                    </div>
+                </div>
             </div>
 
             <!-- 季数 + 集数 + 播出日期 + 周几 -->
@@ -143,7 +114,7 @@
                 </div>
             </div>
 
-            <div class="modal-field">
+            <div class="modal-field modal-summary-area">
                 <label>简介</label>
                 <textarea id="modalSummary" placeholder="简介"></textarea>
             </div>
@@ -186,10 +157,14 @@
             const infoDiv = document.createElement('div');
             infoDiv.className = 'info';
 
+            // 标题行（标题 + 操作按钮）
+            const titleRow = document.createElement('div');
+            titleRow.className = 'title-row';
             const titleDiv = document.createElement('div');
             titleDiv.className = 'title';
             titleDiv.textContent = bgm.name_cn || bgm.name || '未知番剧';
-            infoDiv.appendChild(titleDiv);
+            titleRow.appendChild(titleDiv);
+            infoDiv.appendChild(titleRow);
 
             const metaDiv = document.createElement('div');
             metaDiv.className = 'meta';
@@ -201,7 +176,7 @@
             }
             if (bgm.rating) {
                 const span = document.createElement('span');
-                span.className = 'rating';
+                span.className = 'tag';
                 span.textContent = `★ ${bgm.rating.toFixed(1)}`;
                 metaDiv.appendChild(span);
             }
@@ -239,12 +214,12 @@
 
                 const copyBtn = document.createElement('button');
                 copyBtn.className = 'btn btn-sm btn-outline';
-                copyBtn.textContent = '复制';
+                copyBtn.innerHTML = ICON_COPY;
                 copyBtn.onclick = (e) => {
                     e.stopPropagation();
                     navigator.clipboard.writeText(rssUrl).then(() => {
-                        copyBtn.textContent = '✓ 已复制';
-                        setTimeout(() => { copyBtn.textContent = '复制'; }, 1500);
+                        copyBtn.textContent = '✓';
+                        setTimeout(() => { copyBtn.innerHTML = ICON_COPY; }, 1500);
                     }).catch(() => {
                         const tmp = document.createElement('textarea');
                         tmp.value = rssUrl;
@@ -252,8 +227,8 @@
                         tmp.select();
                         document.execCommand('copy');
                         document.body.removeChild(tmp);
-                        copyBtn.textContent = '✓ 已复制';
-                        setTimeout(() => { copyBtn.textContent = '复制'; }, 1500);
+                        copyBtn.textContent = '✓';
+                        setTimeout(() => { copyBtn.innerHTML = ICON_COPY; }, 1500);
                     });
                 };
                 row.appendChild(copyBtn);
@@ -278,6 +253,9 @@
         }
 
         let pendingUrl = '';
+        const ICON_COPY = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:2px"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+        const ICON_EDIT = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:2px"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+        const ICON_SEARCH = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:2px"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>';
 
         async function previewFeed() {
             const url = document.getElementById('url').value.trim();
@@ -296,8 +274,9 @@
                     title: '📝 确认订阅',
                     info: window._bangumiInfo || {},
                     rss: window._rssPreview,
+                    feedName: data.suggested_name || '',
                     onSave: async (editedInfo) => {
-                        const name = editedInfo.name_cn || data.suggested_name || '';
+                        const name = editedInfo.feedName || data.suggested_name || editedInfo.name_cn || '';
                         const season = document.getElementById('modalSeason').value.trim() || undefined;
                         const body = JSON.stringify({ url: pendingUrl, name, season, bangumi_info: editedInfo });
                         const resp = await fetch('/api/feeds', { method: 'POST', body });
@@ -328,17 +307,19 @@
                 feeds.forEach(f => {
                     const bgm = f.bangumi_info || {};
                     const card = buildAnimeCard(bgm, { season: f.season, rssUrl: f.url });
+                    const titleRow = card.querySelector('.title-row');
                     if (!bgm.name_cn && !bgm.name && f.name) {
                         card.querySelector('.title').textContent = f.name;
                     }
-                    container.appendChild(card);
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'card';
+                    wrapper.appendChild(card);
+                    container.appendChild(wrapper);
 
                     if (!f.bangumi_info && f.name) {
-                        const infoRow = document.createElement('div');
-                        infoRow.style.cssText = 'margin-top:4px;display:flex;flex-direction:column;gap:4px';
                         const btn = document.createElement('button');
                         btn.className = 'btn btn-sm btn-outline';
-                        btn.textContent = '🔍 获取信息';
+                        btn.innerHTML = ICON_SEARCH + '获取';
                         btn.onclick = async (e) => {
                             e.stopPropagation();
                             btn.disabled = true;
@@ -350,43 +331,42 @@
                                     openBangumiModal({
                                         title: '📝 补全 Bangumi 信息',
                                         info: sd.bangumi_info,
+                                        feedName: f.name,
                                         onSave: async (editedInfo) => {
-                                            const body = JSON.stringify({ name: f.name, season: f.season, bangumi_info: editedInfo });
+                                            const body = JSON.stringify({ name: editedInfo.feedName || f.name, season: editedInfo.season || f.season, bangumi_info: editedInfo });
                                             await fetch('/api/feeds/' + f.id, { method: 'PUT', body });
                                             loadFeeds();
                                         }
                                     });
                                 } else {
-                                    btn.textContent = '❌ 未找到';
-                                    setTimeout(() => { btn.textContent = '🔍 获取信息'; btn.disabled = false; }, 2000);
+                                    btn.innerHTML = '❌ 未找到';
+                                    setTimeout(() => { btn.innerHTML = ICON_SEARCH + '获取'; btn.disabled = false; }, 2000);
                                 }
                             } catch (e) {
-                                btn.textContent = '❌ 失败';
-                                setTimeout(() => { btn.textContent = '🔍 获取信息'; btn.disabled = false; }, 2000);
+                                btn.innerHTML = '❌ 失败';
+                                setTimeout(() => { btn.innerHTML = ICON_SEARCH + '获取'; btn.disabled = false; }, 2000);
                             }
                         };
-                        infoRow.appendChild(btn);
-                        card.appendChild(infoRow);
+                        titleRow.appendChild(btn);
                     } else if (f.bangumi_info) {
-                        const infoRow = document.createElement('div');
-                        infoRow.style.cssText = 'margin-top:4px';
                         const editBtn = document.createElement('button');
                         editBtn.className = 'btn btn-sm btn-outline';
-                        editBtn.textContent = '✏️ 编辑信息';
+                        editBtn.innerHTML = ICON_EDIT + '编辑';
                         editBtn.onclick = (e) => {
                             e.stopPropagation();
                             openBangumiModal({
                                 title: '📝 编辑 Bangumi 信息',
                                 info: f.bangumi_info,
+                                season: f.season,
+                                feedName: f.name,
                                 onSave: async (editedInfo) => {
-                                    const body = JSON.stringify({ name: f.name, season: f.season, bangumi_info: editedInfo });
+                                    const body = JSON.stringify({ name: editedInfo.feedName || f.name, season: editedInfo.season || f.season, bangumi_info: editedInfo });
                                     await fetch('/api/feeds/' + f.id, { method: 'PUT', body });
                                     loadFeeds();
                                 }
                             });
                         };
-                        infoRow.appendChild(editBtn);
-                        card.appendChild(infoRow);
+                        titleRow.appendChild(editBtn);
                     }
                 });
             } catch (e) { }
@@ -426,6 +406,7 @@
 
         // ============ 弹窗逻辑 ============
         let _modalOnSave = null;
+        let _searchAbort = null;
 
         function openBangumiModal(options) {
             const info = options.info || {};
@@ -446,23 +427,26 @@
             document.getElementById('modalNameCn').value = info.name_cn || '';
             document.getElementById('modalName').value = info.name || '';
             document.getElementById('modalSummary').value = info.summary || '';
+            document.getElementById('modalFeedName').value = options.feedName || '';
+            document.getElementById('modalSearchInput').value = info.name_cn || info.name || '';
             document.getElementById('modalEps').value = info.eps_count ?? '';
             document.getElementById('modalAirDate').value = info.air_date || '';
             document.getElementById('modalAirWeekday').value = info.air_weekday ?? '';
 
             // 季数（字符串处理）
             const seasonInput = document.getElementById('modalSeason');
-            seasonInput.value = info.season || (options.rss && options.rss.suggested_season) || '';
+            seasonInput.value = info.season || options.season || (options.rss && options.rss.suggested_season) || '';
 
-            // meta 概览
+            // meta 概览（复用 .tag 样式）
             const meta = document.getElementById('modalMeta');
-            const parts = [];
-            if (info.rating) { parts.push(`★ ${info.rating.toFixed(1)}`); meta.dataset.rating = info.rating; }
-            if (info.rank) { parts.push(`#${info.rank}`); meta.dataset.rank = info.rank; }
-            if (info.air_date) parts.push(info.air_date);
-            if (info.eps_count) parts.push(`${info.eps_count} 集`);
+            meta.innerHTML = '';
+            const tags = [];
+            if (info.rating) { tags.push(`<span class="tag">★ ${info.rating.toFixed(1)}</span>`); meta.dataset.rating = info.rating; }
+            if (info.rank) { tags.push(`<span class="tag">#${info.rank}</span>`); meta.dataset.rank = info.rank; }
+            if (info.air_date) tags.push(`<span class="tag">${info.air_date}</span>`);
+            if (info.eps_count) tags.push(`<span class="tag">${info.eps_count} 集</span>`);
             if (info.score_count) meta.dataset.scoreCount = info.score_count;
-            meta.textContent = parts.join(' · ') || '';
+            meta.innerHTML = tags.join('');
 
             // RSS 信息
             const rssDiv = document.getElementById('modalRssInfo');
@@ -502,42 +486,66 @@
                         openBangumiModal({ ...options, info: data.bangumi_info });
                     } else {
                         btn.textContent = '❌ 未找到';
-                        setTimeout(() => { btn.textContent = 'ID 查询'; btn.disabled = false; }, 1500);
+                        setTimeout(() => { btn.textContent = '查 Bangumi'; btn.disabled = false; }, 1500);
                     }
                 } catch (e) {
                     btn.textContent = '❌ 失败';
-                    setTimeout(() => { btn.textContent = 'ID 查询'; btn.disabled = false; }, 1500);
+                    setTimeout(() => { btn.textContent = '查 Bangumi'; btn.disabled = false; }, 1500);
                 }
             };
-            document.getElementById('modalIdBtn').textContent = 'ID 查询';
+            document.getElementById('modalIdBtn').textContent = '查号';
 
             document.getElementById('modalSearchBtn').onclick = async () => {
-                const name = document.getElementById('modalNameCn').value.trim() || document.getElementById('modalName').value.trim();
+                const name = document.getElementById('modalSearchInput').value.trim();
                 if (!name) return;
                 const btn = document.getElementById('modalSearchBtn');
+                const modal = document.getElementById('bgmModal');
+
+                // 取消上一次搜索
+                if (_searchAbort) _searchAbort.abort();
+                _searchAbort = new AbortController();
+
                 btn.disabled = true; btn.textContent = '搜索…';
                 try {
-                    const resp = await fetch('/api/bangumi/search?name=' + encodeURIComponent(name));
+                    const resp = await fetch('/api/bangumi/search?name=' + encodeURIComponent(name), {
+                        signal: _searchAbort.signal,
+                    });
                     const data = await resp.json();
+                    if (!modal.classList.contains('active')) return;
                     if (data.success && data.bangumi_info) {
                         openBangumiModal({ ...options, info: data.bangumi_info });
                     } else {
                         btn.textContent = '❌ 未找到';
-                        setTimeout(() => { btn.textContent = '搜索'; btn.disabled = false; }, 1500);
+                        setTimeout(() => { btn.textContent = '搜名'; btn.disabled = false; }, 1500);
                     }
                 } catch (e) {
                     btn.textContent = '❌ 失败';
-                    setTimeout(() => { btn.textContent = '搜索'; btn.disabled = false; }, 1500);
+                    setTimeout(() => { btn.textContent = '搜名'; btn.disabled = false; }, 1500);
                 }
             };
-            document.getElementById('modalSearchBtn').textContent = '搜索';
+            document.getElementById('modalSearchBtn').textContent = '搜名';
 
             document.getElementById('modalSaveBtn').disabled = false;
             document.getElementById('modalSaveBtn').textContent = '✅ 保存';
+
             document.getElementById('bgmModal').classList.add('active');
+
+            // 让封面高度跟随右侧内容（取最后一个子元素底部，不含 trailing margin）
+            requestAnimationFrame(() => {
+                const cover = document.getElementById('modalCover');
+                const right = document.querySelector('.modal-id-area');
+                if (cover && right) {
+                    const last = right.lastElementChild;
+                    const h = last
+                        ? last.getBoundingClientRect().bottom - right.getBoundingClientRect().top
+                        : right.getBoundingClientRect().height;
+                    cover.style.height = h + 'px';
+                }
+            });
         }
 
         function closeBangumiModal() {
+            if (_searchAbort) _searchAbort.abort();
             document.getElementById('bgmModal').classList.remove('active');
             _modalOnSave = null;
         }
@@ -549,6 +557,7 @@
                 name_cn: document.getElementById('modalNameCn').value,
                 name: document.getElementById('modalName').value,
                 summary: document.getElementById('modalSummary').value,
+                feedName: document.getElementById('modalFeedName').value.trim() || undefined,
                 season: document.getElementById('modalSeason').value.trim() || undefined,
                 eps_count: parseInt(document.getElementById('modalEps').value) || undefined,
                 air_date: document.getElementById('modalAirDate').value,
