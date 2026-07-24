@@ -120,7 +120,7 @@ fn main() -> anyhow::Result<()> {
         let port = config.port;
         let fs = Arc::clone(&fs_ops);
         thread::spawn(move || {
-            start_server(tx, port, fs);
+            start_server(tx, port, fs, config.max_concurrency);
             log::warn!("HTTP server thread exited");
         });
     } else {

@@ -1,11 +1,11 @@
+use std::io::Read;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
-use tiny_http::{Method, Response};
 
 use crossbeam_channel::Sender;
 use matchit::Router;
-use std::io::Read;
-use std::net::SocketAddr;
+use tiny_http::{Method, Response};
 
 use crate::core::event::Event;
 use crate::traits::FileOps;
@@ -85,7 +85,7 @@ fn truncate(s: &str, max: usize) -> String {
 
 // ── Server ──
 
-pub fn start(event_tx: Sender<Event>, preferred: u16, fs: Arc<dyn FileOps>) {
+pub fn start(event_tx: Sender<Event>, preferred: u16, fs: Arc<dyn FileOps>, max_concurrency: usize) {
     let server = try_bind(preferred).unwrap_or_else(|| {
         log::info!("port {preferred} unavailable, trying OS-assigned");
         try_bind(0).unwrap_or_else(|| {
@@ -103,8 +103,33 @@ pub fn start(event_tx: Sender<Event>, preferred: u16, fs: Arc<dyn FileOps>) {
 
     let router = build_router();
     let tx = Arc::new(event_tx);
+    let concurrency = Arc::new(std::sync::Mutex::new(max_concurrency));
+    let cv = Arc::new(std::sync::Condvar::new());
 
     for mut request in server.incoming_requests() {
+        // Wait for a concurrency slot, then release on scope exit.
+        struct Permit {
+            slots: Arc<std::sync::Mutex<usize>>,
+            cv: Arc<std::sync::Condvar>,
+        }
+        impl Drop for Permit {
+            fn drop(&mut self) {
+                *self.slots.lock().unwrap() += 1;
+                self.cv.notify_one();
+            }
+        }
+
+        let mut slots = concurrency.lock().unwrap();
+        while *slots == 0 {
+            slots = cv.wait(slots).unwrap();
+        }
+        *slots -= 1;
+        drop(slots);
+        let _permit = Permit {
+            slots: concurrency.clone(),
+            cv: cv.clone(),
+        };
+
         let tx = tx.clone();
         let method = request.method().clone();
         let url = request.url().to_string();

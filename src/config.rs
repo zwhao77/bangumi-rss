@@ -45,6 +45,8 @@ pub struct Config {
     pub qbittorrent_pass: String,
     #[envconfig(from = "BANGUMI_API_BASE", default = "https://api.bgm.tv")]
     pub bangumi_api_base: String,
+    #[envconfig(from = "MAX_CONCURRENCY", default = "8")]
+    pub max_concurrency: usize,
 }
 
 #[cfg(test)]
