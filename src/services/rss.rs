@@ -50,6 +50,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "requires network access to mikanani"]
     fn test_mikan_real_rss() {
         let url = "https://mikanani.kas.pub/RSS/Bangumi?bangumiId=4008&subgroupid=583";
         let client = RssClient;
