@@ -6,33 +6,40 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>添加番剧订阅</title>
     <style>
+        :root {
+            --card-img-height: 8.5rem;
+            /* 约136px，基于16px根字体 */
+            --card-gap: 0.6rem;
+            font-size: 16px;
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
-            padding: 0
+            padding: 0;
         }
 
         body {
             font-family: system-ui, sans-serif;
             max-width: 520px;
             margin: 2em auto;
-            padding: 0 16px;
-            color: #222
+            padding: 0 1rem;
+            color: #222;
         }
 
         h2 {
-            margin-bottom: .5em
+            margin-bottom: .5em;
         }
 
         .step {
             margin: 1em 0;
             padding: 1em;
             background: #f5f5f5;
-            border-radius: 8px
+            border-radius: 8px;
         }
 
         .step.hidden {
-            display: none
+            display: none;
         }
 
         input,
@@ -43,12 +50,12 @@
             margin: 6px 0;
             font-size: 15px;
             border-radius: 6px;
-            border: 1px solid #ccc
+            border: 1px solid #ccc;
         }
 
         input:focus {
             outline: 2px solid #4a90d9;
-            border-color: transparent
+            border-color: transparent;
         }
 
         button {
@@ -56,38 +63,282 @@
             color: #fff;
             border: none;
             cursor: pointer;
-            font-weight: 600
+            font-weight: 600;
         }
 
         button:hover {
-            background: #357abd
+            background: #357abd;
         }
 
         button:disabled {
             background: #a0c4e8;
-            cursor: wait
+            cursor: wait;
+        }
+
+        /* 统一卡片样式 */
+        .anime-card {
+            display: flex;
+            gap: var(--card-gap);
+            align-items: flex-start;
+            padding: 0.6rem;
+            margin: 0.6rem 0;
+            background: #fff;
+            border: 1px solid #e8e8e8;
+            border-radius: 8px;
+            transition: box-shadow 0.2s;
+        }
+
+        .anime-card:hover {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+
+        /* 封面区域：宽度用百分比，最大宽度限制，高度固定 */
+        .anime-card .cover {
+            width: 28%;
+            max-width: 100px;
+            flex-shrink: 0;
+            height: var(--card-img-height);
+            min-height: 5rem;
+            overflow: hidden;
+            border-radius: 4px;
+            background: #f0f2f5
+        }
+
+        .anime-card .cover:empty::after {
+            content: '无封面';
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            font-size: .75rem;
+            color: #999;
+        }
+
+        .anime-card .cover img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        /* 信息区域：flex列布局，高度与封面一致，作为滚动边界 */
+        .anime-card .info {
+            flex: 1;
+            min-width: 0;
+            height: var(--card-img-height);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            /* 配合内部滚动 */
+        }
+
+        /* 标题：可换行，限制最大行数（可选） */
+        .anime-card .title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            line-height: 1.3;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            word-break: break-word;
+        }
+
+        /* 元数据标签行：自动换行 */
+        .anime-card .meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.3rem;
+            margin-top: 0.25rem;
+            font-size: 0.8rem;
+            align-items: center;
         }
 
         .tag {
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
             background: #e8f0fe;
             color: #1a73e8;
-            padding: 2px 8px;
+            padding: 2px 6px;
             border-radius: 4px;
-            font-size: .85em;
-            margin-right: 4px
+            font-size: 0.75rem;
+            white-space: nowrap;
         }
 
         .tag-ongoing {
             background: #fff3e0;
-            color: #e65100
+            color: #e65100;
+        }
+
+        .rating {
+            color: #f5a623;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        /* RSS链接行：截断链接 + 复制按钮 */
+        .anime-card .rss-link-row {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 0.2rem;
+            flex-shrink: 0;
+        }
+
+        .anime-card .rss-link-text {
+            flex: 1;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #333;
+        }
+
+        .anime-card .copy-btn {
+            flex-shrink: 0;
+            width: auto;
+            background: none;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            color: #666;
+            line-height: 1.2;
+            transition: background 0.2s;
+        }
+
+        .anime-card .copy-btn:hover {
+            background: #f0f0f0;
+        }
+
+        /* ══════ Bangumi 编辑弹窗 ══════ */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,.45);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.active { display: flex; }
+
+        .modal-box {
+            background: #fff;
+            border-radius: 10px;
+            width: min(90vw, 520px);
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 20px 24px;
+            box-shadow: 0 8px 32px rgba(0,0,0,.2);
+        }
+        .modal-box h3 { margin: 0 0 12px 0; font-size: 1rem; }
+
+        .modal-grid {
+            display: flex;
+            gap: 14px;
+            margin-bottom: 14px;
+        }
+        .modal-cover {
+            width: 100px;
+            min-height: 140px;
+            border-radius: 4px;
+            background: #f0f2f5;
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+        .modal-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .modal-cover:empty::after {
+            content: '无封面';
+            display: flex; align-items: center; justify-content: center;
+            height: 100%; font-size: .7rem; color: #999;
+        }
+        .modal-id-area {
+            flex: 1;
+            display: flex; flex-direction: column; gap: 6px;
+        }
+        .modal-id-area .id-row {
+            display: flex; gap: 4px;
+        }
+        .modal-id-area .id-row input { flex: 1; }
+        .modal-id-area .id-row button { width: auto; padding: 6px 10px; font-size: .75rem; white-space: nowrap; }
+        .modal-id-area .meta-row {
+            font-size: .78rem; color: #666;
+        }
+
+        .modal-field { margin-bottom: 8px; }
+        .modal-field label { display: block; font-size: .72rem; color: #888; margin-bottom: 2px; }
+        .modal-field input, .modal-field textarea, .modal-field select {
+            width: 100%; padding: 6px 8px; font-size: .82rem;
+            border: 1px solid #ddd; border-radius: 4px;
+        }
+        .modal-field textarea { resize: vertical; min-height: 60px; }
+        .modal-field .inline-group {
+            display: flex; gap: 8px; align-items: center;
+        }
+        .modal-field .inline-group input { flex: 1; }
+
+        .modal-actions {
+            display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px;
+        }
+        .modal-actions button { width: auto; padding: 6px 18px; font-size: .82rem; }
+
+        /* 简介区域：剩余空间，可滚动 */
+        .anime-card .summary {
+            flex: 1;
+            overflow-y: auto;
+            font-size: 0.78rem;
+            line-height: 1.4;
+            color: #555;
+            margin-top: 0.25rem;
+            min-height: 0;
+            /* flex限制必须 */
+            padding-right: 2px;
+            /* 留出滚动条空间 */
+        }
+
+        /* 移动端微调 */
+        @media (max-width: 480px) {
+            :root {
+                --card-img-height: 7.5rem;
+                /* 稍矮，适应小屏 */
+            }
+
+            .anime-card .cover {
+                width: 30%;
+                max-width: 90px;
+            }
+
+            .anime-card .title {
+                font-size: 0.9rem;
+            }
+
+            .anime-card .meta {
+                font-size: 0.75rem;
+            }
+
+            .anime-card .summary {
+                font-size: 0.75rem;
+            }
+        }
+
+        /* 原 form-card 保留 */
+        .form-card {
+            padding: 10px;
+            margin: 10px 0;
+            background: #fff;
+            border: 1px solid #e8e8e8;
+            border-radius: 8px;
         }
 
         .label {
             font-size: .85em;
             color: #666;
             margin-top: 8px;
-            display: block
+            display: block;
         }
 
         .samples {
@@ -95,23 +346,25 @@
             color: #888;
             max-height: 100px;
             overflow-y: auto;
-            margin-top: 4px
+            margin-top: 4px;
         }
 
         .hint {
             font-size: .8em;
             color: #aaa;
             margin-top: 4px;
-            animation: fadeOut 3s ease-out 3s forwards
+            animation: fadeOut 3s ease-out 3s forwards;
         }
 
         @keyframes fadeOut {
-            to { opacity: 0 }
+            to {
+                opacity: 0;
+            }
         }
 
         .samples li {
             list-style: none;
-            padding: 2px 0
+            padding: 2px 0;
         }
 
         .spinner {
@@ -123,12 +376,12 @@
             border-radius: 50%;
             animation: spin .8s linear infinite;
             vertical-align: middle;
-            margin-right: 8px
+            margin-right: 8px;
         }
 
         @keyframes spin {
             to {
-                transform: rotate(360deg)
+                transform: rotate(360deg);
             }
         }
 
@@ -136,88 +389,31 @@
             text-align: center;
             padding: 24px;
             color: #888;
-            font-size: .9em
+            font-size: .9em;
         }
 
-        .bgm-card {
-            display: flex;
-            gap: 10px;
-            align-items: flex-start;
-            padding: 10px;
-            margin: 10px 0;
-            background: #fff;
-            border: 1px solid #e8e8e8;
-            border-radius: 8px
-        }
-
-        .bgm-card img {
-            width: 90px;
-            border-radius: 4px;
-            flex-shrink: 0
-        }
-
-        .bgm-card .info {
-            font-size: .85em;
-            line-height: 1.5
-        }
-
-        .bgm-card .info strong {
-            font-size: 1em;
-            display: block
-        }
-
-        .form-card {
-            padding: 10px;
-            margin: 10px 0;
-            background: #fff;
-            border: 1px solid #e8e8e8;
-            border-radius: 8px
-        }
-
-        #feeds li {
+        /* 下载进度卡片 */
+        #downloads>div {
             margin: 8px 0;
             padding: 8px;
             background: #fff;
             border: 1px solid #eee;
             border-radius: 6px;
-            display: flex;
-            gap: 10px;
-            max-height: 112px;
-            overflow: hidden
         }
 
-        #feeds li img {
-            width: 80px;
-            height: 112px;
-            object-fit: cover;
+        .progress-bar {
+            background: #e0e0e0;
             border-radius: 4px;
-            flex-shrink: 0
+            height: 8px;
+            margin: 4px 0;
+            overflow: hidden;
         }
 
-        .feed-info {
-            flex: 1;
-            min-width: 0;
-            display: flex;
-            flex-direction: column
-        }
-
-        .feed-meta {
-            font-size: .8em;
-            color: #888;
-            margin-top: 2px;
-            flex-shrink: 0
-        }
-
-        .feed-meta.feed-summary {
-            flex: 1;
-            overflow-y: auto;
-            margin-top: 2px;
-            min-height: 0
-        }
-
-        .rating {
-            color: #f5a623;
-            font-weight: 600
+        .progress-fill {
+            background: #4a90d9;
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s;
         }
     </style>
 </head>
@@ -231,260 +427,580 @@
         <button id="previewBtn" onclick="previewFeed()">获取番剧信息</button>
     </div>
 
-    <div id="step2" class="step hidden">
-        <span class="label">确认番剧信息</span>
-        <div id="previewInfo"></div>
-        <button onclick="confirmFeed()">确认订阅</button>
-    </div>
-
     <div id="result" class="step hidden"></div>
 
     <h3 style="margin-top:1.5em">已订阅 <button onclick="loadFeeds()"
             style="width:auto;padding:4px 12px;font-size:13px">刷新</button></h3>
-    <ul id="feeds"></ul>
+    <div id="feeds"></div>
 
     <h3 style="margin-top:1.5em">下载进度 <button onclick="refreshAndLoad()"
             style="width:auto;padding:4px 12px;font-size:13px">刷新</button></h3>
     <div id="downloads"></div>
+
     <script>
+        // ============ 工具函数：中间省略 ============
+        function truncateMiddle(url, maxLen = 55) {
+            if (url.length <= maxLen) return url;
+            const half = Math.floor(maxLen / 2) - 1; // 前后各保留约一半，减1留给省略号
+            const start = url.slice(0, half);
+            const end = url.slice(-half);
+            return `${start}...${end}`;
+        }
+
+        // ============ 统一卡片构建函数 ============
+        function buildAnimeCard(bangumiInfo, extra = {}) {
+            const { season, rssUrl } = extra;
+            const bgm = bangumiInfo || {};
+            const weekday = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+            const card = document.createElement('div');
+            card.className = 'anime-card';
+
+            // 左侧封面
+            const coverDiv = document.createElement('div');
+            coverDiv.className = 'cover';
+            if (bgm.image_url) {
+                const img = document.createElement('img');
+                img.src = bgm.image_url;
+                img.alt = bgm.name_cn || bgm.name || '';
+                img.onerror = () => { img.remove(); };
+                coverDiv.appendChild(img);
+            }
+            card.appendChild(coverDiv);
+
+            // 右侧信息
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'info';
+
+            // 标题
+            const titleDiv = document.createElement('div');
+            titleDiv.className = 'title';
+            titleDiv.textContent = bgm.name_cn || bgm.name || '未知番剧';
+            infoDiv.appendChild(titleDiv);
+
+            // 元数据标签
+            const metaDiv = document.createElement('div');
+            metaDiv.className = 'meta';
+            // 排名
+            if (bgm.rank) {
+                const rankSpan = document.createElement('span');
+                rankSpan.className = 'tag';
+                rankSpan.textContent = `#${bgm.rank}`;
+                metaDiv.appendChild(rankSpan);
+            }
+            // 评分
+            if (bgm.rating) {
+                const ratingSpan = document.createElement('span');
+                ratingSpan.className = 'rating';
+                ratingSpan.textContent = `★ ${bgm.rating.toFixed(1)}`;
+                metaDiv.appendChild(ratingSpan);
+            }
+            // 播出日期 + 周几
+            if (bgm.air_date || bgm.air_weekday) {
+                const airSpan = document.createElement('span');
+                airSpan.className = 'tag';
+                let airText = bgm.air_date || '';
+                if (bgm.air_weekday) {
+                    airText += (airText ? ' ' : '') + weekday[bgm.air_weekday];
+                }
+                airSpan.textContent = airText;
+                metaDiv.appendChild(airSpan);
+            }
+            // 集数状态
+            if (bgm.eps_count !== undefined) {
+                const epsSpan = document.createElement('span');
+                epsSpan.className = 'tag tag-ongoing';
+                epsSpan.textContent = bgm.eps_count ? `${bgm.eps_count} 集` : '未完结';
+                metaDiv.appendChild(epsSpan);
+            }
+            // 季数（仅订阅卡片显示）
+            if (season !== undefined) {
+                const seasonSpan = document.createElement('span');
+                seasonSpan.className = 'tag';
+                seasonSpan.textContent = `S${season}`;
+                metaDiv.appendChild(seasonSpan);
+            }
+            infoDiv.appendChild(metaDiv);
+
+            // RSS链接行（中间省略 + 复制按钮）
+            if (rssUrl) {
+                const row = document.createElement('div');
+                row.className = 'rss-link-row';
+
+                const textSpan = document.createElement('span');
+                textSpan.className = 'rss-link-text';
+                textSpan.textContent = rssUrl;
+                textSpan.title = rssUrl;
+                row.appendChild(textSpan);
+
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'copy-btn';
+                copyBtn.textContent = '复制';
+                copyBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(rssUrl).then(() => {
+                        copyBtn.textContent = '✓ 已复制';
+                        setTimeout(() => { copyBtn.textContent = '复制'; }, 1500);
+                    }).catch(() => {
+                        const tmp = document.createElement('textarea');
+                        tmp.value = rssUrl;
+                        document.body.appendChild(tmp);
+                        tmp.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(tmp);
+                        copyBtn.textContent = '✓ 已复制';
+                        setTimeout(() => { copyBtn.textContent = '复制'; }, 1500);
+                    });
+                };
+                row.appendChild(copyBtn);
+                infoDiv.appendChild(row);
+            }
+
+            // 简介（如果存在）
+            if (bgm.summary) {
+                const summaryDiv = document.createElement('div');
+                summaryDiv.className = 'summary';
+                summaryDiv.textContent = bgm.summary;
+                infoDiv.appendChild(summaryDiv);
+            } else if (Object.keys(bgm).length > 0) {
+                // 有 bangumi_info 但无简介时给淡提示，保持版面一致
+                const summaryDiv = document.createElement('div');
+                summaryDiv.className = 'summary';
+                summaryDiv.textContent = '暂无简介';
+                summaryDiv.style.color = '#ccc';
+                infoDiv.appendChild(summaryDiv);
+            }
+
+            card.appendChild(infoDiv);
+            return card;
+        }
+
+        // ============ 原功能逻辑（已适配统一卡片） ============
         let pendingUrl = '';
 
         async function previewFeed() {
             const url = document.getElementById('url').value.trim();
             if (!url) return;
             pendingUrl = url;
-            const step2 = document.getElementById('step2');
-            const result = document.getElementById('result');
             const btn = document.getElementById('previewBtn');
-            step2.classList.add('hidden');
-            result.classList.add('hidden');
-
-            // Show loading
-            step2.classList.remove('hidden');
-            document.getElementById('previewInfo').innerHTML =
-                '<div class="loading-box"><span class="spinner"></span>正在获取番剧信息…</div>';
-
             btn.disabled = true;
+            btn.textContent = '加载中…';
+            document.getElementById('result').classList.add('hidden');
             try {
                 const resp = await fetch('/api/feeds/preview', { method: 'POST', body: url });
                 const data = await resp.json();
-                renderPreview(data);
+                window._bangumiInfo = data.bangumi_info || null;
+                window._rssPreview = { group: data.group, latest_episode: data.latest_episode, sample_titles: data.sample_titles, suggested_season: data.suggested_season };
+                // 直接打开弹窗
+                openBangumiModal({
+                    title: '📝 确认订阅',
+                    info: window._bangumiInfo || {},
+                    rss: window._rssPreview,
+                    onSave: async (editedInfo) => {
+                        const name = editedInfo.name_cn || data.suggested_name || '';
+                        const season = parseInt(document.getElementById('modalSeason').value);
+                        const body = JSON.stringify({ url: pendingUrl, name, season, bangumi_info: editedInfo });
+                        const resp = await fetch('/api/feeds', { method: 'POST', body });
+                        const result = await resp.json();
+                        document.getElementById('result').classList.remove('hidden');
+                        document.getElementById('result').innerHTML = result.success
+                            ? `<p style="color:green">✅ 订阅成功</p><p class="label">Feed ID: ${result.message}</p>`
+                            : `<p style="color:red">❌ 订阅失败: ${result.message}</p>`;
+                        loadFeeds();
+                        loadDownloads();
+                    }
+                });
             } catch (e) {
-                document.getElementById('previewInfo').innerHTML =
+                document.getElementById('result').classList.remove('hidden');
+                document.getElementById('result').innerHTML =
                     `<p style="color:red">❌ 请求失败: ${e.message}</p>`;
             } finally {
                 btn.disabled = false;
+                btn.textContent = '获取番剧信息';
             }
         }
 
-        function renderPreview(data) {
-            const bgm = data.bangumi_info || {};
-            const info = document.getElementById('previewInfo');
-            info.innerHTML = '';
-
-            // Bangumi card
-            if (bgm.name_cn) {
-                const weekday = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-                const card = document.createElement('div');
-                card.className = 'bgm-card';
-                card.innerHTML = `
-      ${bgm.image_url ? `<img src="${bgm.image_url}" onerror="this.style.display='none'">` : ''}
-      <div class="info">
-        <strong>${bgm.name_cn || bgm.name}</strong>
-        ${bgm.rank ? `<span class="tag">#${bgm.rank}</span>` : ''}
-        <span class="rating">${bgm.rating ? '★ ' + bgm.rating.toFixed(1) : ''}</span>
-        <span class="tag">${bgm.air_date || ''}${bgm.air_weekday ? ' ' + weekday[bgm.air_weekday] : ''}</span>
-        <span class="tag tag-ongoing">${bgm.eps_count ? bgm.eps_count + ' 集' : '未完结'}</span>
-        ${bgm.summary ? `<div class="feed-meta">${bgm.summary}</div>` : ''}
-      </div>`;
-                info.appendChild(card);
-            }
-
-            // Form card
-            const form = document.createElement('div');
-            form.className = 'form-card';
-            form.innerHTML = `
-    <p><span class="tag">${data.group || '-'}</span></p>
-    <label class="label">番剧名</label>
-    <input id="animeName" value="${data.suggested_name || ''}">
-    <button onclick="searchBangumi()" id="searchBtn" style="margin-top:0;padding:6px;font-size:13px">搜索 Bangumi</button>
-    <label class="label">Bangumi ID（可选）</label>
-    <div style="display:flex;gap:6px;align-items:center">
-      <input id="bangumiId" type="number" placeholder="留空自动搜索" style="flex:1">
-      <button onclick="lookupBangumiId()" style="width:auto;padding:6px 12px;font-size:13px;white-space:nowrap">ID 查询</button>
-    </div>
-    <label class="label">季数</label>
-    <select id="season">
-      ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(s => `<option ${s == data.suggested_season ? 'selected' : ''}>S${s}</option>`).join('')}
-    </select>
-    ${data.latest_episode ? `<p class="label">最新集: 第 ${data.latest_episode} 集</p>` : ''}
-    ${data.sample_titles.length ? `<p class="label">样本标题:</p><ul class="samples">${data.sample_titles.map(t => `<li>${t}</li>`).join('')}</ul>` : ''}
-  `;
-            info.appendChild(form);
-
-            window._bangumiInfo = data.bangumi_info || null;
-
-            // Auto-fill Bangumi ID and anime name from preview data
-            const idInput = document.getElementById('bangumiId');
-            if (idInput && data.bangumi_info && data.bangumi_info.bangumi_id) {
-                idInput.value = data.bangumi_info.bangumi_id;
-            }
-            const nameInput = document.getElementById('animeName');
-            if (nameInput && data.bangumi_info && data.bangumi_info.name_cn) {
-                nameInput.value = data.bangumi_info.name_cn;
-            }
-        }
-
-        async function confirmFeed() {
-            const name = document.getElementById('animeName').value;
-            const season = parseInt(document.getElementById('season').value.replace('S', ''));
-            const body = JSON.stringify({ url: pendingUrl, name, season, bangumi_info: window._bangumiInfo });
-            const resp = await fetch('/api/feeds', { method: 'POST', body });
-            const data = await resp.json();
-            document.getElementById('result').classList.remove('hidden');
-            document.getElementById('result').innerHTML = data.success
-                ? `<p style="color:green">✅ 订阅成功</p><p class="label">Feed ID: ${data.message}</p>`
-                : `<p style="color:red">❌ 订阅失败: ${data.message}</p>`;
-            loadFeeds();
-            loadDownloads();
-        }
-
-        async function searchBangumi() {
-            const name = document.getElementById('animeName').value.trim();
-            if (!name) return;
-            const btn = document.getElementById('searchBtn');
-            btn.disabled = true;
-            btn.textContent = '搜索中…';
-            clearHint();
-            try {
-                const resp = await fetch('/api/bangumi/search?name=' + encodeURIComponent(name));
-                const data = await resp.json();
-                if (data.success && data.bangumi_info) {
-                    window._bangumiInfo = data.bangumi_info;
-                    document.getElementById('bangumiId').value = data.bangumi_info.bangumi_id;
-                    document.getElementById('animeName').value = data.bangumi_info.name_cn || data.bangumi_info.name;
-                    renderBangumiCard(data.bangumi_info);
-                } else {
-                    document.querySelector('.bgm-card')?.remove();
-                    window._bangumiInfo = null;
-                    showHint('Bangumi 未找到或搜索失败');
-                }
-            } catch (e) {
-                showHint('网络异常，搜索失败');
-            } finally {
-                btn.disabled = false;
-                btn.textContent = '搜索 Bangumi';
-            }
-        }
-
-        async function lookupBangumiId() {
-            const id = document.getElementById('bangumiId').value.trim();
-            if (!id) return;
-            clearHint();
-            try {
-                const resp = await fetch('/api/bangumi/subjects/' + id);
-                const data = await resp.json();
-                if (data.success && data.bangumi_info) {
-                    window._bangumiInfo = data.bangumi_info;
-                    document.getElementById('animeName').value = data.bangumi_info.name_cn || data.bangumi_info.name;
-                    renderBangumiCard(data.bangumi_info);
-                } else {
-                    document.querySelector('.bgm-card')?.remove();
-                    window._bangumiInfo = null;
-                    showHint('该 ID 未找到或 Bangumi 查询失败');
-                }
-            } catch (e) {
-                showHint('网络异常，查询失败');
-            }
-        }
-
-        function renderBangumiCard(bgm) {
-            const old = document.querySelector('.bgm-card');
-            if (old) old.remove();
-            const weekday = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-            const card = document.createElement('div');
-            card.className = 'bgm-card';
-            card.innerHTML = `
-                ${bgm.image_url ? `<img src="${bgm.image_url}" onerror="this.style.display='none'">` : ''}
-                <div class="info"><strong>${bgm.name_cn || bgm.name}</strong>
-                ${bgm.rank ? `<span class="tag">#${bgm.rank}</span>` : ''}
-                <span class="rating">${bgm.rating ? '★ ' + bgm.rating.toFixed(1) : ''}</span>
-                <span class="tag">${bgm.air_date || ''}${bgm.air_weekday ? ' ' + weekday[bgm.air_weekday] : ''}</span>
-                <span class="tag tag-ongoing">${bgm.eps_count ? bgm.eps_count + ' 集' : '未完结'}</span>
-                ${bgm.summary ? `<div class="feed-meta">${bgm.summary}</div>` : ''}</div>`;
-            const info = document.getElementById('previewInfo');
-            info.insertBefore(card, info.firstChild);
-        }
-
-        function showHint(msg) {
-            const e = document.getElementById('hint') || (() => {
-                const d = document.createElement('div');
-                d.id = 'hint';
-                d.className = 'hint';
-                document.getElementById('previewInfo')?.appendChild(d);
-                return d;
-            })();
-            e.textContent = msg;
-            e.style.animation = 'none';
-            e.offsetHeight; // reflow
-            e.style.animation = ''; // re-trigger
-            // Remove after fade completes
-            clearTimeout(e._timer);
-            e._timer = setTimeout(() => { e.remove(); }, 6000);
-        }
-        function clearHint() { document.getElementById('hint')?.remove(); }
-
+        // 加载已订阅列表
         async function loadFeeds() {
-            const resp = await fetch('/api/feeds');
-            const feeds = await resp.json();
-            document.getElementById('feeds').innerHTML = feeds
-                .map(f => {
-                    const img = f.bangumi_info
-                        ? `<img src="${f.bangumi_info.image_url}" alt="${f.name}" onerror="this.style.display='none'">`
-                        : '';
-                    const rating = f.bangumi_info && f.bangumi_info.rating
-                        ? `<span class="rating">★ ${f.bangumi_info.rating.toFixed(1)}</span>`
-                        : '';
-                    const eps = f.bangumi_info
-                        ? (f.bangumi_info.eps_count ? ` · ${f.bangumi_info.eps_count} 集` : ' · 未完结')
-                        : '';
-                    const summary = f.bangumi_info && f.bangumi_info.summary
-                        ? `<div class="feed-meta feed-summary">${f.bangumi_info.summary}</div>`
-                        : '';
-                    return `<li>${img}<div class="feed-info"><strong>${f.name}</strong> (S${f.season}) ${rating}<div class="feed-meta">${f.url}${eps}</div>${summary}</div></li>`;
-                })
-                .join('');
+            try {
+                const resp = await fetch('/api/feeds');
+                const feeds = await resp.json();
+                const container = document.getElementById('feeds');
+                container.innerHTML = '';
+                feeds.forEach(f => {
+                    const bgm = f.bangumi_info || {};
+                    const card = buildAnimeCard(bgm, {
+                        season: f.season,
+                        rssUrl: f.url
+                    });
+                    // 如果没有bangumi信息，但至少有名称，可调整标题
+                    if (!bgm.name_cn && !bgm.name && f.name) {
+                        card.querySelector('.title').textContent = f.name;
+                    }
+                    container.appendChild(card);
+
+                    // 对无 bangumi_info 的订阅，附加"获取番剧信息"按钮
+                    if (!f.bangumi_info && f.name) {
+                        const infoRow = document.createElement('div');
+                        infoRow.style.cssText = 'margin-top:4px;display:flex;flex-direction:column;gap:4px';
+
+                        const btn = document.createElement('button');
+                        btn.className = 'copy-btn';
+                        btn.textContent = '🔍 获取信息';
+                        btn.onclick = async (e) => {
+                            e.stopPropagation();
+                            btn.disabled = true;
+                            btn.textContent = '搜索中…';
+                            try {
+                                const sr = await fetch('/api/bangumi/search?name=' + encodeURIComponent(f.name));
+                                const sd = await sr.json();
+                                if (sd.success && sd.bangumi_info) {
+                                    openBangumiModal({
+                                        title: '📝 补全 Bangumi 信息',
+                                        info: sd.bangumi_info,
+                                        onSave: async (editedInfo) => {
+                                            const body = JSON.stringify({ name: f.name, season: f.season, bangumi_info: editedInfo });
+                                            await fetch('/api/feeds/' + f.id, { method: 'PUT', body });
+                                            loadFeeds();
+                                        }
+                                    });
+                                } else {
+                                    btn.textContent = '❌ 未找到';
+                                    setTimeout(() => { btn.textContent = '🔍 获取信息'; btn.disabled = false; }, 2000);
+                                }
+                            } catch (e) {
+                                btn.textContent = '❌ 失败';
+                                setTimeout(() => { btn.textContent = '🔍 获取信息'; btn.disabled = false; }, 2000);
+                            }
+                        };
+                        infoRow.appendChild(btn);
+                        card.appendChild(infoRow);
+                    } else if (f.bangumi_info) {
+                        // 已有信息，加编辑按钮
+                        const infoRow = document.createElement('div');
+                        infoRow.style.cssText = 'margin-top:4px';
+                        const editBtn = document.createElement('button');
+                        editBtn.className = 'copy-btn';
+                        editBtn.textContent = '✏️ 编辑信息';
+                        editBtn.onclick = (e) => {
+                            e.stopPropagation();
+                            openBangumiModal({
+                                title: '📝 编辑 Bangumi 信息',
+                                info: f.bangumi_info,
+                                onSave: async (editedInfo) => {
+                                    const body = JSON.stringify({ name: f.name, season: f.season, bangumi_info: editedInfo });
+                                    await fetch('/api/feeds/' + f.id, { method: 'PUT', body });
+                                    loadFeeds();
+                                }
+                            });
+                        };
+                        infoRow.appendChild(editBtn);
+                        card.appendChild(infoRow);
+                    }
+                });
+            } catch (e) {
+                // 忽略，保持空列表
+            }
         }
 
+        // 下载进度相关
         async function refreshAndLoad() {
-            await fetch('/api/downloads/refresh', { method: 'POST' });
-            loadDownloads();
+            try {
+                await fetch('/api/downloads/refresh', { method: 'POST' });
+                loadDownloads();
+            } catch (e) {
+                // 忽略，保持当前状态
+            }
         }
 
         async function loadDownloads() {
-            const resp = await fetch('/api/downloads');
-            const data = await resp.json();
-            const el = document.getElementById('downloads');
-            if (!data.length) {
-                el.innerHTML = '<p class="label">暂无下载任务</p>';
-                return;
+            try {
+                const resp = await fetch('/api/downloads');
+                const data = await resp.json();
+                const el = document.getElementById('downloads');
+                if (!data.length) {
+                    el.innerHTML = '<p class="label">暂无下载任务</p>';
+                    return;
+                }
+                el.innerHTML = data.map(d => {
+                    const pct = (d.progress * 100).toFixed(1);
+                    const speed = d.speed > 0 ? (d.speed / 1048576).toFixed(1) + ' MB/s' : '—';
+                    const size = (d.size / 1073741824).toFixed(1) + ' GB';
+                    return `<div>
+                        <strong>${d.feed_name || d.name}</strong>
+                        <span class="tag">${d.state}</span>
+                        <span class="tag">S${d.season}</span>
+                        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+                        <span class="label">${pct}% · ${speed} · ${size}</span>
+                    </div>`;
+                }).join('');
+            } catch (e) {
+                // 忽略，保持当前状态
             }
-            el.innerHTML = data.map(d => {
-                const pct = (d.progress * 100).toFixed(1);
-                const speed = d.speed > 0 ? (d.speed / 1048576).toFixed(1) + ' MB/s' : '—';
-                const size = (d.size / 1073741824).toFixed(1) + ' GB';
-                const bar = `<div style="background:#e0e0e0;border-radius:4px;height:8px;margin:4px 0"><div style="background:#4a90d9;width:${pct}%;height:100%;border-radius:4px"></div></div>`;
-                return `<div style="margin:8px 0;padding:8px;background:#fff;border:1px solid #eee;border-radius:6px">
-      <strong>${d.feed_name || d.name}</strong>
-      <span class="tag">${d.state}</span>
-      <span class="tag">S${d.season}</span>
-      ${bar}
-      <span class="label">${pct}% · ${speed} · ${size}</span>
-    </div>`;
-            }).join('');
         }
+
+        // ══════ Bangumi 编辑弹窗 ══════
+        let _modalOnSave = null; // 保存回调
+
+        function openBangumiModal(options) {
+            // options = { info, onSave, rss?, season? }
+            // info: { bangumi_id, name_cn, name, summary, eps_count, rating, rank, air_date, air_weekday, image_url }
+            const info = options.info || {};
+            _modalOnSave = options.onSave || null;
+
+            document.getElementById('modalTitle').textContent = options.title || '📝 编辑 Bangumi 信息';
+
+            // 封面
+            const cover = document.getElementById('modalCover');
+            cover.innerHTML = '';
+            if (info.image_url) {
+                const img = document.createElement('img');
+                img.src = info.image_url;
+                img.alt = info.name_cn || '';
+                img.onerror = () => { img.remove(); };
+                cover.appendChild(img);
+            }
+
+            // 字段
+            document.getElementById('modalBgmId').value = info.bangumi_id || '';
+            document.getElementById('modalNameCn').value = info.name_cn || '';
+            document.getElementById('modalName').value = info.name || '';
+            document.getElementById('modalSummary').value = info.summary || '';
+            document.getElementById('modalEps').value = info.eps_count ?? '';
+            document.getElementById('modalRating').value = info.rating ? `★ ${info.rating.toFixed(1)}` : '';
+            document.getElementById('modalRank').value = info.rank ? `#${info.rank}` : '';
+            document.getElementById('modalAirDate').value = info.air_date || '';
+            document.getElementById('modalAirWeekday').value = info.air_weekday ?? '';
+
+            // meta 标签：评分概览 + 存储只读字段
+            const meta = document.getElementById('modalMeta');
+            const parts = [];
+            if (info.rating) { parts.push(`★ ${info.rating.toFixed(1)}`); meta.dataset.rating = info.rating; }
+            if (info.rank) { parts.push(`#${info.rank}`); meta.dataset.rank = info.rank; }
+            if (info.air_date) parts.push(info.air_date);
+            if (info.eps_count) parts.push(`${info.eps_count} 集`);
+            if (info.score_count) meta.dataset.scoreCount = info.score_count;
+            meta.textContent = parts.join(' · ') || '';
+
+            // RSS 元数据（仅新订阅预览时显示）
+            const rssDiv = document.getElementById('modalRssInfo');
+            const rss = options.rss;
+            if (rss) {
+                rssDiv.style.display = 'block';
+                document.getElementById('modalRssGroup').textContent = rss.group || '-';
+                document.getElementById('modalRssLatest').textContent = rss.latest_episode ? `最新集: 第 ${rss.latest_episode} 集` : '';
+                const samples = document.getElementById('modalRssSamples');
+                samples.innerHTML = '';
+                if (rss.sample_titles && rss.sample_titles.length) {
+                    const label = document.createElement('div');
+                    label.style.cssText = 'margin:4px 0 2px;font-size:.72rem;color:#888';
+                    label.textContent = '样本标题:';
+                    samples.appendChild(label);
+                    rss.sample_titles.forEach(t => {
+                        const el = document.createElement('div');
+                        el.style.cssText = 'font-size:.72rem;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+                        el.textContent = t;
+                        samples.appendChild(el);
+                    });
+                }
+                // 季数
+                const seasonSel = document.getElementById('modalSeason');
+                if (rss.suggested_season) seasonSel.value = rss.suggested_season;
+            } else {
+                rssDiv.style.display = 'none';
+            }
+
+            // ID 查询按钮
+            document.getElementById('modalIdBtn').onclick = async () => {
+                const id = document.getElementById('modalBgmId').value.trim();
+                if (!id) return;
+                const btn = document.getElementById('modalIdBtn');
+                btn.disabled = true; btn.textContent = '查询中…';
+                try {
+                    const resp = await fetch('/api/bangumi/subjects/' + id);
+                    const data = await resp.json();
+                    if (data.success && data.bangumi_info) {
+                        openBangumiModal({ ...options, info: data.bangumi_info });
+                    } else {
+                        btn.textContent = '❌ 未找到';
+                        setTimeout(() => { btn.textContent = 'ID 查询'; btn.disabled = false; }, 1500);
+                    }
+                } catch (e) {
+                    btn.textContent = '❌ 失败';
+                    setTimeout(() => { btn.textContent = 'ID 查询'; btn.disabled = false; }, 1500);
+                } finally {
+                    btn.disabled = false;
+                }
+            };
+            document.getElementById('modalIdBtn').textContent = 'ID 查询';
+
+            // 搜索按钮
+            document.getElementById('modalSearchBtn').onclick = async () => {
+                const name = document.getElementById('modalNameCn').value.trim() || document.getElementById('modalName').value.trim();
+                if (!name) return;
+                const btn = document.getElementById('modalSearchBtn');
+                btn.disabled = true; btn.textContent = '搜索…';
+                try {
+                    const resp = await fetch('/api/bangumi/search?name=' + encodeURIComponent(name));
+                    const data = await resp.json();
+                    if (data.success && data.bangumi_info) {
+                        openBangumiModal({ ...options, info: data.bangumi_info });
+                    } else {
+                        btn.textContent = '❌ 未找到';
+                        setTimeout(() => { btn.textContent = '搜索'; btn.disabled = false; }, 1500);
+                    }
+                } catch (e) {
+                    btn.textContent = '❌ 失败';
+                    setTimeout(() => { btn.textContent = '搜索'; btn.disabled = false; }, 1500);
+                } finally {
+                    btn.disabled = false;
+                }
+            };
+            document.getElementById('modalSearchBtn').textContent = '搜索';
+
+            // 重置保存按钮状态
+            const saveBtn = document.getElementById('modalSaveBtn');
+            saveBtn.disabled = false;
+            saveBtn.textContent = '✅ 保存';
+
+            document.getElementById('bgmModal').classList.add('active');
+        }
+
+        function closeBangumiModal() {
+            document.getElementById('bgmModal').classList.remove('active');
+            _modalOnSave = null;
+        }
+
+        function saveBangumiModal() {
+            if (!_modalOnSave) { closeBangumiModal(); return; }
+            // 从页面字段收集可编辑值
+            const info = {
+                bangumi_id: parseInt(document.getElementById('modalBgmId').value) || 0,
+                name_cn: document.getElementById('modalNameCn').value,
+                name: document.getElementById('modalName').value,
+                summary: document.getElementById('modalSummary').value,
+                eps_count: parseInt(document.getElementById('modalEps').value) || undefined,
+                air_date: document.getElementById('modalAirDate').value,
+                air_weekday: parseInt(document.getElementById('modalAirWeekday').value) || undefined,
+            };
+            // 保留只读字段（从上次载入的数据中取，避免丢失）
+            const cover = document.getElementById('modalCover');
+            const img = cover.querySelector('img');
+            info.image_url = img ? img.src : '';
+            // 从 meta 区域隐藏字段取值
+            const metaEl = document.getElementById('modalMeta');
+            if (metaEl.dataset.rating) info.rating = parseFloat(metaEl.dataset.rating);
+            if (metaEl.dataset.rank) info.rank = parseInt(metaEl.dataset.rank);
+            if (metaEl.dataset.scoreCount) info.score_count = parseInt(metaEl.dataset.scoreCount);
+
+            const saveBtn = document.getElementById('modalSaveBtn');
+            saveBtn.disabled = true;
+            saveBtn.textContent = '保存中…';
+            _modalOnSave(info).then(() => {
+                closeBangumiModal();
+            }).catch((e) => {
+                saveBtn.disabled = false;
+                saveBtn.textContent = '✅ 保存';
+                // 如果是订阅流程，显示错误
+                const result = document.getElementById('result');
+                if (result) {
+                    result.classList.remove('hidden');
+                    result.innerHTML = `<p style="color:red">❌ 请求失败: ${e?.message || '未知错误'}</p>`;
+                }
+            });
+        }
+
+        // 初始加载
         loadFeeds();
+        loadDownloads();
     </script>
+
+    <!-- ══════ Bangumi 编辑弹窗 ══════ -->
+    <div class="modal-overlay" id="bgmModal">
+        <div class="modal-box">
+            <h3 id="modalTitle">📝 编辑 Bangumi 信息</h3>
+            <div class="modal-grid">
+                <div class="modal-cover" id="modalCover"></div>
+                <div class="modal-id-area">
+                    <div class="id-row">
+                        <input id="modalBgmId" type="number" placeholder="Bangumi ID">
+                        <button id="modalIdBtn">ID 查询</button>
+                        <button id="modalSearchBtn">搜索</button>
+                    </div>
+                    <div class="meta-row" id="modalMeta"></div>
+                </div>
+            </div>
+
+            <div class="modal-field">
+                <label>中文名</label>
+                <input id="modalNameCn" placeholder="中文名">
+            </div>
+            <div class="modal-field">
+                <label>原名</label>
+                <input id="modalName" placeholder="原名">
+            </div>
+            <div class="modal-field">
+                <label>简介</label>
+                <textarea id="modalSummary" placeholder="简介"></textarea>
+            </div>
+            <div class="modal-field">
+                <div class="inline-group">
+                    <div style="flex:1">
+                        <label>集数</label>
+                        <input id="modalEps" type="number" placeholder="集数">
+                    </div>
+                    <div style="flex:1">
+                        <label>评分</label>
+                        <input id="modalRating" type="text" readonly style="background:#f5f5f5;color:#888">
+                    </div>
+                    <div style="flex:1">
+                        <label>排名</label>
+                        <input id="modalRank" type="text" readonly style="background:#f5f5f5;color:#888">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-field">
+                <div class="inline-group">
+                    <div style="flex:2">
+                        <label>播出日期</label>
+                        <input id="modalAirDate" type="text" placeholder="2024-01">
+                    </div>
+                    <div style="flex:1">
+                        <label>周几</label>
+                        <select id="modalAirWeekday">
+                            <option value="">未知</option>
+                            <option value="1">周一</option>
+                            <option value="2">周二</option>
+                            <option value="3">周三</option>
+                            <option value="4">周四</option>
+                            <option value="5">周五</option>
+                            <option value="6">周六</option>
+                            <option value="7">周日</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RSS 元数据（仅新订阅预览时显示） -->
+            <div id="modalRssInfo" style="display:none;margin-top:8px;padding:8px;background:#f8f9fa;border-radius:4px;font-size:.78rem;color:#555">
+                <div style="margin-bottom:4px"><span class="tag" id="modalRssGroup"></span> <span id="modalRssLatest"></span></div>
+                <div id="modalRssSamples" style="margin-top:4px"></div>
+                <div class="modal-field" style="margin:6px 0 0 0">
+                    <label>季数</label>
+                    <select id="modalSeason">
+                        <option value="1">S1</option><option value="2">S2</option><option value="3">S3</option>
+                        <option value="4">S4</option><option value="5">S5</option><option value="6">S6</option>
+                        <option value="7">S7</option><option value="8">S8</option><option value="9">S9</option><option value="10">S10</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button onclick="closeBangumiModal()" style="background:#f0f0f0;color:#666;border:1px solid #ddd">取消</button>
+                <button id="modalSaveBtn" onclick="saveBangumiModal()">✅ 保存</button>
+            </div>
+        </div>
+    </div>
 </body>
 
 </html>

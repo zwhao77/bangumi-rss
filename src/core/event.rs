@@ -46,6 +46,8 @@ pub enum Event {
         feed_id: Uuid,
         name: String,
         season: u8,
+        bangumi_info: Option<BangumiInfo>,
+        reply_tx: crossbeam_channel::Sender<ApiResponse>,
     },
 
     /// API: confirm a feed subscription with resolved anime info.

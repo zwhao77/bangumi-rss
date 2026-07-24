@@ -66,12 +66,19 @@ impl AppState {
         self
     }
 
-    /// Confirm a feed's anime name and season.
-    pub fn with_feed_confirmed(mut self, id: Uuid, name: String, season: u8) -> Self {
+    /// Confirm a feed's anime name, season, and optional Bangumi metadata.
+    pub fn with_feed_confirmed(
+        mut self,
+        id: Uuid,
+        name: String,
+        season: u8,
+        bangumi_info: Option<BangumiInfo>,
+    ) -> Self {
         if let Some(f) = self.feeds.get_mut(&id) {
             f.anime.name = name;
             f.anime.season = season;
             f.confirmed = true;
+            f.bangumi_info = bangumi_info;
         }
         self
     }

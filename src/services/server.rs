@@ -275,7 +275,7 @@ fn handle_feed_create(body: &str, tx: &Sender<Event>) -> AppResponse {
     }
 }
 
-/// PUT /api/feeds/{id} — update feed name / season.
+/// PUT /api/feeds/{id} — update feed name / season / bangumi_info.
 fn handle_feed_update(id: &str, body: &str, tx: &Sender<Event>) -> AppResponse {
     let feed_id = match uuid::Uuid::parse_str(id) {
         Ok(id) => id,
@@ -291,15 +291,25 @@ fn handle_feed_update(id: &str, body: &str, tx: &Sender<Event>) -> AppResponse {
     let update: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
     let name = update["name"].as_str().unwrap_or("").to_string();
     let season = update["season"].as_u64().unwrap_or(1) as u8;
+    let bangumi_info: Option<BangumiInfo> = update
+        .get("bangumi_info")
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
 
+    let (reply_tx, reply_rx) = crossbeam_channel::bounded(1);
     let _ = tx.send(Event::UserConfirm {
         feed_id,
         name,
         season,
+        bangumi_info,
+        reply_tx,
+    });
+    let result = reply_rx.recv().unwrap_or(ApiResponse {
+        success: false,
+        message: "timeout".into(),
     });
     AppResponse::Text {
-        code: 200,
-        body: r#"{"success":true,"message":"updated"}"#.into(),
+        code: if result.success { 200 } else { 404 },
+        body: serde_json::to_string(&result).unwrap_or_default(),
         content_type: JSON_TYPE,
     }
 }
@@ -447,7 +457,8 @@ fn handle_bangumi_subject(id_str: &str) -> AppResponse {
     match crate::services::bangumi::detail(id) {
         Ok(Some(info)) => AppResponse::Text {
             code: 200,
-            body: serde_json::json!({"success":true,"bangumi_info":rewrite_image_url(info)}).to_string(),
+            body: serde_json::json!({"success":true,"bangumi_info":rewrite_image_url(info)})
+                .to_string(),
             content_type: JSON_TYPE,
         },
         Ok(None) => AppResponse::Text {

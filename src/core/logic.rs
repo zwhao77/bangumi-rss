@@ -40,7 +40,9 @@ pub fn reduce(state: &AppState, event: Event) -> (AppState, Vec<Effect>) {
             feed_id,
             name,
             season,
-        } => reduce_user_confirm(state, feed_id, name, season),
+            bangumi_info,
+            reply_tx,
+        } => reduce_user_confirm(state, feed_id, name, season, bangumi_info, reply_tx),
         Event::ConfirmFeed {
             url,
             name,
@@ -242,8 +244,21 @@ fn reduce_user_confirm(
     feed_id: Uuid,
     name: String,
     season: u8,
+    bangumi_info: Option<BangumiInfo>,
+    reply_tx: crossbeam_channel::Sender<ApiResponse>,
 ) -> (AppState, Vec<Effect>) {
-    let new_state = state.clone().with_feed_confirmed(feed_id, name, season);
+    let exists = state.feeds.contains_key(&feed_id);
+    let new_state = state
+        .clone()
+        .with_feed_confirmed(feed_id, name, season, bangumi_info);
+    let _ = reply_tx.send(ApiResponse {
+        success: exists,
+        message: if exists {
+            "updated".into()
+        } else {
+            format!("feed {feed_id} not found")
+        },
+    });
     (new_state, vec![])
 }
 
