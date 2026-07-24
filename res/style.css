@@ -1,0 +1,345 @@
+:root {
+    --color-primary: #4a90d9;
+    --color-bg: #f5f5f5;
+    --color-card: #fff;
+    --color-border: #e0e0e0;
+    --color-text: #222;
+    --color-text-light: #666;
+    --radius: 6px;
+    font-size: 16px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: system-ui, sans-serif;
+    max-width: 520px;
+    margin: 2em auto;
+    padding: 0 1rem;
+    color: var(--color-text);
+    background: #fff;
+}
+
+h2,
+h3 {
+    margin: 1em 0 0.5em;
+}
+
+/* 通用卡片 */
+.card {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: 0.6rem;
+    margin: 0.6rem 0;
+}
+
+/* 通用按钮 */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 16px;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    font-size: 0.9rem;
+    cursor: pointer;
+    background: var(--color-primary);
+    color: #fff;
+    font-weight: 600;
+    transition: opacity 0.2s;
+    width: auto;
+}
+
+.btn:hover {
+    opacity: 0.85;
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+.btn-outline {
+    background: none;
+    border: 1px solid var(--color-border);
+    color: var(--color-text-light);
+}
+
+.btn-outline:hover {
+    background: #f0f0f0;
+    opacity: 1;
+}
+
+.btn-sm {
+    padding: 4px 10px;
+    font-size: 0.75rem;
+}
+
+/* 通用标签 */
+.tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    background: #e8f0fe;
+    color: #1a73e8;
+    white-space: nowrap;
+}
+
+/* 通用表单 */
+input,
+select,
+textarea {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 0.9rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: #fff;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: 2px solid var(--color-primary);
+    border-color: transparent;
+}
+
+textarea {
+    resize: vertical;
+    min-height: 60px;
+}
+
+.label {
+    font-size: 0.8rem;
+    color: var(--color-text-light);
+    display: block;
+    margin: 8px 0 4px;
+}
+
+/* 动漫卡片内部布局 */
+.anime-card {
+    display: flex;
+    gap: 0.6rem;
+    align-items: flex-start;
+}
+
+.anime-card .cover {
+    width: 28%;
+    max-width: 100px;
+    flex-shrink: 0;
+    height: 8.5rem;
+    min-height: 5rem;
+    overflow: hidden;
+    border-radius: 4px;
+    background: #f0f2f5;
+}
+
+.anime-card .cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.anime-card .cover:empty::after {
+    content: '无封面';
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    font-size: 0.75rem;
+    color: #999;
+}
+
+.anime-card .info {
+    flex: 1;
+    min-width: 0;
+    height: 8.5rem;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.anime-card .title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+}
+
+.anime-card .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.25rem;
+    font-size: 0.8rem;
+    align-items: center;
+}
+
+.anime-card .rss-link-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    color: #888;
+    margin-top: 0.2rem;
+    flex-shrink: 0;
+}
+
+.rss-link-text {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #333;
+}
+
+.anime-card .summary {
+    flex: 1;
+    overflow-y: auto;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    color: #555;
+    margin-top: 0.25rem;
+    min-height: 0;
+    padding-right: 2px;
+}
+
+/* 进度条 */
+.progress-bar {
+    background: #e0e0e0;
+    border-radius: 4px;
+    height: 6px;
+    margin: 4px 0;
+    overflow: hidden;
+}
+
+.progress-fill {
+    background: var(--color-primary);
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s;
+}
+
+/* 弹窗 */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-overlay.active {
+    display: flex;
+}
+
+.modal-box {
+    background: #fff;
+    border-radius: 10px;
+    width: min(90vw, 520px);
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 20px 24px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.modal-box h3 {
+    margin-bottom: 12px;
+}
+
+.modal-grid {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+.modal-id-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.id-row {
+    display: flex;
+    gap: 4px;
+}
+
+.id-row input {
+    flex: 1;
+}
+
+.meta-row {
+    font-size: 0.78rem;
+    color: var(--color-text-light);
+}
+
+/* 弹窗中的表单使用通用 input/select，无需额外样式 */
+.modal-field {
+    margin-bottom: 8px;
+}
+
+.modal-field label {
+    font-size: 0.72rem;
+    color: #888;
+    display: block;
+    margin-bottom: 2px;
+}
+
+.inline-group {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.inline-group>* {
+    flex: 1;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 14px;
+}
+
+#modalRssInfo {
+    margin-top: 8px;
+    padding: 8px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    font-size: 0.78rem;
+    color: #555;
+}
+
+/* 移动端 */
+@media (max-width: 480px) {
+    .anime-card .cover {
+        width: 30%;
+        max-width: 80px;
+        height: 7.5rem;
+    }
+
+    .anime-card .info {
+        height: 7.5rem;
+    }
+
+    .anime-card .title {
+        font-size: 0.9rem;
+    }
+}

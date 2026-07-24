@@ -108,10 +108,7 @@ fn reduce_rss_items_fetched(
         }
         // Reject batch torrents (e.g. "01-12").
         if crate::utils::tokenizer::is_batch_title(&item.title) {
-            log::debug!(
-                "skip batch: {}",
-                &item.title[..item.title.len().min(80)]
-            );
+            log::debug!("skip batch: {}", &item.title[..item.title.len().min(80)]);
             continue;
         }
         new_state = new_state.with_url_seen(&item.torrent_url);
