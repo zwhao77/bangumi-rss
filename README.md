@@ -41,13 +41,18 @@ Open `http://localhost:7893` in browser to subscribe and manage.
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `7893` | HTTP API port |
+| `NO_SERVER` | `false` | Disable HTTP server |
 | `DATA_DIR` | `.` | State file directory (`state.json`) |
 | `RSS_INTERVAL` | `900` | RSS poll interval (seconds) |
 | `ARIA2_RPC_URL` | `http://localhost:6800/jsonrpc` | Aria2 JSON-RPC endpoint |
-| `DOWNLOAD_DIR` | — | Torrent staging directory |
-| `LIBRARY_DIR` | — | Media library output directory |
+| `DOWNLOAD_DIR` | `/downloads` | Torrent staging directory |
+| `LIBRARY_DIR` | `/anime` | Media library output directory |
 | `DOWNLOADER` | `aria2` | `aria2` or `qbittorrent` |
-| `MOCK_DOWNLOADER` | — | Enable in-memory mock downloader (testing) |
+| `MOCK_DOWNLOADER` | `false` | Enable in-memory mock downloader (testing) |
+| `QBITTORRENT_URL` | `http://localhost:8080` | qBittorrent Web UI base URL |
+| `QBITTORRENT_USER` | `admin` | qBittorrent username |
+| `QBITTORRENT_PASS` | `adminadmin` | qBittorrent password |
+| `BANGUMI_API_BASE` | `https://api.bgm.tv` | Bangumi API base URL |
 | `RUST_LOG` | `info` | Log level (`warn` to quieten, `debug` for verbose) |
 
 ## Architecture

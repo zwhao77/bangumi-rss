@@ -251,8 +251,11 @@ impl EffectExecutor {
             if r.to.exists() {
                 log::debug!("already in library: {:?}", r.to);
             } else {
-                if let Some(parent) = r.to.parent() {
-                    let _ = self.fs.ensure_dir(parent);
+                if let Some(parent) = r.to.parent()
+                    && let Err(e) = self.fs.ensure_dir(parent)
+                {
+                    log::warn!("ensure_dir failed: {parent:?}: {e}");
+                    continue;
                 }
                 match self.fs.move_file(&r.from, &r.to) {
                     Ok(()) => log::info!("moved: {:?} → {:?}", r.from, r.to),

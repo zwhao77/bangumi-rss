@@ -5,9 +5,12 @@ mod traits;
 mod types;
 mod utils;
 
+use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+
+use anyhow::Context;
 
 use crossbeam_channel::bounded;
 
@@ -43,18 +46,22 @@ fn main() -> anyhow::Result<()> {
     } else {
         Arc::new(services::RealFileSystem)
     };
-    let data_dir = config.data_dir.clone().unwrap_or_else(|| ".".into());
+    let data_dir = config.data_dir.clone();
 
     // ── shared state (owned by logic thread) ──
     let mut state = load_state(&*fs_ops, &data_dir).unwrap_or_default();
 
-    // Fill dirs from env if not already set in state.
-    if state.download_dir.is_empty() {
-        state.download_dir = config.download_dir.unwrap_or_else(|| "/downloads".into());
-    }
-    if state.library_dir.is_empty() {
-        state.library_dir = config.library_dir.unwrap_or_else(|| "/anime".into());
-    }
+    // Validate directories early — fail fast if permission denied.
+    fs_ops
+        .ensure_dir(Path::new(&config.download_dir))
+        .context("cannot access DOWNLOAD_DIR")?;
+    fs_ops
+        .ensure_dir(Path::new(&config.library_dir))
+        .context("cannot access LIBRARY_DIR")?;
+
+    // Fill dirs from config (always, not persisted).
+    state.download_dir = config.download_dir;
+    state.library_dir = config.library_dir;
 
     // ── services (trait objects behind Arc) ──
     let rss_client: Arc<dyn crate::traits::RssFetcher> = if config.mock_downloader {

@@ -23,12 +23,12 @@ pub struct Config {
     pub port: u16,
     #[envconfig(from = "NO_SERVER", default = "false")]
     pub no_server: bool,
-    #[envconfig(from = "DATA_DIR")]
-    pub data_dir: Option<String>,
-    #[envconfig(from = "DOWNLOAD_DIR")]
-    pub download_dir: Option<String>,
-    #[envconfig(from = "LIBRARY_DIR")]
-    pub library_dir: Option<String>,
+    #[envconfig(from = "DATA_DIR", default = ".")]
+    pub data_dir: String,
+    #[envconfig(from = "DOWNLOAD_DIR", default = "/downloads")]
+    pub download_dir: String,
+    #[envconfig(from = "LIBRARY_DIR", default = "/anime")]
+    pub library_dir: String,
     #[envconfig(from = "DOWNLOADER", default = "aria2")]
     pub downloader: Downloader,
     #[envconfig(from = "MOCK_DOWNLOADER", default = "false")]
@@ -65,7 +65,7 @@ mod tests {
         let c = Config::init_from_hashmap(&hashmap(&[])).unwrap();
         assert_eq!(c.port, 7893);
         assert!(!c.no_server);
-        assert!(c.data_dir.is_none());
+        assert_eq!(c.data_dir, ".");
         assert!(matches!(c.downloader, Downloader::Aria2));
         assert_eq!(c.bangumi_api_base, "https://api.bgm.tv");
     }
@@ -96,8 +96,8 @@ mod tests {
     #[test]
     fn optional_dir_not_set() {
         let c = Config::init_from_hashmap(&hashmap(&[])).unwrap();
-        assert!(c.data_dir.is_none());
-        assert!(c.download_dir.is_none());
+        assert_eq!(c.data_dir, ".");
+        assert_eq!(c.download_dir, "/downloads");
     }
 
     #[test]
@@ -107,7 +107,7 @@ mod tests {
             ("DOWNLOAD_DIR", "/custom/dl"),
         ]))
         .unwrap();
-        assert_eq!(c.data_dir.unwrap(), "/custom/data");
-        assert_eq!(c.download_dir.unwrap(), "/custom/dl");
+        assert_eq!(c.data_dir, "/custom/data");
+        assert_eq!(c.download_dir, "/custom/dl");
     }
 }

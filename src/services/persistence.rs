@@ -24,9 +24,5 @@ pub fn save_state(fs: &dyn FileOps, state: &AppState, data_dir: &str) -> anyhow:
 }
 
 fn data_path(data_dir: &str) -> PathBuf {
-    if data_dir.is_empty() {
-        PathBuf::from("state.json")
-    } else {
-        PathBuf::from(data_dir).join("state.json")
-    }
+    PathBuf::from(data_dir).join("state.json")
 }

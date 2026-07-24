@@ -41,13 +41,18 @@ LIBRARY_DIR=/anime \
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `PORT` | `7893` | HTTP API 端口 |
-| `DATA_DIR` | `.` | 状态文件目录（`state.json`） |
+| `NO_SERVER` | `false` | 禁用 HTTP 服务器 |
+| `DATA_DIR` | `.` | 状态文件目录 (`state.json`) |
 | `RSS_INTERVAL` | `900` | RSS 轮询间隔（秒） |
-| `ARIA2_RPC_URL` | `http://localhost:6800/jsonrpc` | Aria2 JSON-RPC 地址 |
-| `DOWNLOAD_DIR` | — | 种子下载暂存目录 |
-| `LIBRARY_DIR` | — | 媒体库输出目录 |
+| `ARIA2_RPC_URL` | `http://localhost:6800/jsonrpc` | Aria2 JSON-RPC 端点 |
+| `DOWNLOAD_DIR` | `/downloads` | 种子暂存目录 |
+| `LIBRARY_DIR` | `/anime` | 媒体库输出目录 |
 | `DOWNLOADER` | `aria2` | `aria2` 或 `qbittorrent` |
-| `MOCK_DOWNLOADER` | — | 启用内存模拟下载器（测试用） |
+| `MOCK_DOWNLOADER` | `false` | 启用内存模拟下载器（测试用） |
+| `QBITTORRENT_URL` | `http://localhost:8080` | qBittorrent Web UI 地址 |
+| `QBITTORRENT_USER` | `admin` | qBittorrent 用户名 |
+| `QBITTORRENT_PASS` | `adminadmin` | qBittorrent 密码 |
+| `BANGUMI_API_BASE` | `https://api.bgm.tv` | Bangumi API 基础 URL |
 | `RUST_LOG` | `info` | 日志级别（设为 `warn` 可减少输出） |
 
 ## 架构

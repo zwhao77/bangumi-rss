@@ -30,7 +30,9 @@ pub struct AppState {
     #[serde(skip)]
     pub cached_downloads: Vec<crate::types::DownloadInfo>,
 
+    #[serde(skip)]
     pub download_dir: String,
+    #[serde(skip)]
     pub library_dir: String,
     pub webhook_url: Option<String>,
 }
