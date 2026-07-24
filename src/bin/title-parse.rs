@@ -40,13 +40,17 @@ fn parse_title(raw: &str) {
 }
 
 fn preview_url(url: &str) {
-    let body = match ureq::get(url)
-        .call()
-        .and_then(|r| r.into_string().map_err(|e| e.into()))
-    {
-        Ok(s) => s,
+    let resp = match ureq::get(url).call() {
+        Ok(r) => r,
         Err(e) => {
             eprintln!("❌ HTTP: {e}");
+            return;
+        }
+    };
+    let body = match resp.into_string() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("❌ HTTP read: {e}");
             return;
         }
     };

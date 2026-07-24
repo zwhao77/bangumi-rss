@@ -386,9 +386,6 @@ impl TorrentDownloader for Aria2Downloader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::{Child, Command};
-    use std::sync::Mutex;
-    use std::sync::atomic::{AtomicU16, Ordering};
 
     // ── Unit tests ──
 
