@@ -198,10 +198,14 @@ fn respond(request: tiny_http::Request, resp: AppResponse, url: &str) {
             let header = format!("Content-Type: {content_type}")
                 .parse::<tiny_http::Header>()
                 .unwrap();
+            let cache = "Cache-Control: public, max-age=86400"
+                .parse::<tiny_http::Header>()
+                .unwrap();
             request.respond(
                 Response::from_data(data)
                     .with_status_code(code)
-                    .with_header(header),
+                    .with_header(header)
+                    .with_header(cache),
             )
         }
     };

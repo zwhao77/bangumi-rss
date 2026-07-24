@@ -98,6 +98,17 @@
             margin-top: 4px
         }
 
+        .hint {
+            font-size: .8em;
+            color: #aaa;
+            margin-top: 4px;
+            animation: fadeOut 3s ease-out 3s forwards
+        }
+
+        @keyframes fadeOut {
+            to { opacity: 0 }
+        }
+
         .samples li {
             list-style: none;
             padding: 2px 0
@@ -332,6 +343,7 @@
             const btn = document.getElementById('searchBtn');
             btn.disabled = true;
             btn.textContent = '搜索中…';
+            clearHint();
             try {
                 const resp = await fetch('/api/bangumi/search?name=' + encodeURIComponent(name));
                 const data = await resp.json();
@@ -343,9 +355,10 @@
                 } else {
                     document.querySelector('.bgm-card')?.remove();
                     window._bangumiInfo = null;
+                    showHint('Bangumi 未找到或搜索失败');
                 }
             } catch (e) {
-                console.error('searchBangumi failed', e);
+                showHint('网络异常，搜索失败');
             } finally {
                 btn.disabled = false;
                 btn.textContent = '搜索 Bangumi';
@@ -355,6 +368,7 @@
         async function lookupBangumiId() {
             const id = document.getElementById('bangumiId').value.trim();
             if (!id) return;
+            clearHint();
             try {
                 const resp = await fetch('/api/bangumi/subjects/' + id);
                 const data = await resp.json();
@@ -365,9 +379,10 @@
                 } else {
                     document.querySelector('.bgm-card')?.remove();
                     window._bangumiInfo = null;
+                    showHint('该 ID 未找到或 Bangumi 查询失败');
                 }
             } catch (e) {
-                console.error('lookupBangumiId failed', e);
+                showHint('网络异常，查询失败');
             }
         }
 
@@ -388,6 +403,24 @@
             const info = document.getElementById('previewInfo');
             info.insertBefore(card, info.firstChild);
         }
+
+        function showHint(msg) {
+            const e = document.getElementById('hint') || (() => {
+                const d = document.createElement('div');
+                d.id = 'hint';
+                d.className = 'hint';
+                document.getElementById('previewInfo')?.appendChild(d);
+                return d;
+            })();
+            e.textContent = msg;
+            e.style.animation = 'none';
+            e.offsetHeight; // reflow
+            e.style.animation = ''; // re-trigger
+            // Remove after fade completes
+            clearTimeout(e._timer);
+            e._timer = setTimeout(() => { e.remove(); }, 6000);
+        }
+        function clearHint() { document.getElementById('hint')?.remove(); }
 
         async function loadFeeds() {
             const resp = await fetch('/api/feeds');
