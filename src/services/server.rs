@@ -35,6 +35,7 @@ enum AppResponse {
 #[derive(Debug, Clone, Copy)]
 enum Route {
     Feeds,            // GET /api/feeds  | POST /api/feeds
+    FeedUpdate,       // POST /api/feeds/update
     FeedId,           // PUT /api/feeds/{id}  | DELETE /api/feeds/{id}
     FeedPreview,      // POST /api/feeds/preview
     Downloads,        // GET /api/downloads
@@ -47,6 +48,7 @@ enum Route {
 fn build_router() -> Router<Route> {
     let mut r = Router::new();
     r.insert("/api/feeds", Route::Feeds).unwrap();
+    r.insert("/api/feeds/update", Route::FeedUpdate).unwrap();
     r.insert("/api/feeds/{id}", Route::FeedId).unwrap();
     r.insert("/api/feeds/preview", Route::FeedPreview).unwrap();
     r.insert("/api/downloads", Route::Downloads).unwrap();
@@ -122,6 +124,9 @@ pub fn start(event_tx: Sender<Event>, preferred: u16, fs: Arc<dyn FileOps>) {
             // ═══ /api/feeds ═══
             (Some(Route::Feeds), Method::Get) => handle_list_feeds(&tx),
             (Some(Route::Feeds), Method::Post) => handle_feed_create(&body, &tx),
+
+            // ═══ /api/feeds/update ═══
+            (Some(Route::FeedUpdate), Method::Post) => handle_feed_update_all(&tx),
 
             // ═══ /api/feeds/{id} ═══
             (Some(Route::FeedId), Method::Put) => {
@@ -384,6 +389,16 @@ fn handle_refresh(tx: &Sender<Event>) -> AppResponse {
     AppResponse::Text {
         code: 200,
         body: r#"{"success":true,"message":"refresh triggered"}"#.into(),
+        content_type: JSON_TYPE,
+    }
+}
+
+/// POST /api/feeds/update — trigger immediate RSS poll for all feeds.
+fn handle_feed_update_all(tx: &Sender<Event>) -> AppResponse {
+    let _ = tx.send(Event::RssTickAll);
+    AppResponse::Text {
+        code: 200,
+        body: r#"{"success":true,"message":"RSS refresh triggered"}"#.into(),
         content_type: JSON_TYPE,
     }
 }
