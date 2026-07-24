@@ -411,6 +411,26 @@ fn handle_image_proxy(path: &str) -> AppResponse {
     }
 }
 
+/// Rewrite raw Bangumi CDN URL to go through our image proxy.
+/// This ensures images work when the browser can't directly reach lain.bgm.tv.
+fn rewrite_image_url(mut info: BangumiInfo) -> BangumiInfo {
+    if !info.image_url.is_empty() {
+        let encoded: String = info
+            .image_url
+            .bytes()
+            .flat_map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    vec![b as char]
+                }
+                b' ' => vec!['+'],
+                _ => format!("%{:02X}", b).chars().collect(),
+            })
+            .collect();
+        info.image_url = format!("/api/bangumi/image?url={encoded}");
+    }
+    info
+}
+
 /// GET /api/bangumi/subjects/{id}
 fn handle_bangumi_subject(id_str: &str) -> AppResponse {
     let id: u32 = match id_str.parse() {
@@ -427,7 +447,7 @@ fn handle_bangumi_subject(id_str: &str) -> AppResponse {
     match crate::services::bangumi::detail(id) {
         Ok(Some(info)) => AppResponse::Text {
             code: 200,
-            body: serde_json::json!({"success":true,"bangumi_info":info}).to_string(),
+            body: serde_json::json!({"success":true,"bangumi_info":rewrite_image_url(info)}).to_string(),
             content_type: JSON_TYPE,
         },
         Ok(None) => AppResponse::Text {
@@ -465,7 +485,7 @@ fn handle_bangumi_search(url: &str) -> AppResponse {
             log::info!("Bangumi search '{name}' → #{id}");
             match crate::services::bangumi::detail(id) {
                 Ok(Some(info)) => {
-                    serde_json::json!({ "success": true, "bangumi_info": info })
+                    serde_json::json!({ "success": true, "bangumi_info": rewrite_image_url(info) })
                 }
                 Ok(None) => serde_json::json!({ "success": false, "message": "no detail" }),
                 Err(e) => serde_json::json!({ "success": false, "message": format!("{e}") }),

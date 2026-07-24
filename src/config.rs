@@ -54,7 +54,10 @@ mod tests {
     use std::collections::HashMap;
 
     fn hashmap(pairs: &[(&str, &str)]) -> HashMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -82,8 +85,12 @@ mod tests {
 
     #[test]
     fn invalid_downloader() {
-        let err = Config::init_from_hashmap(&hashmap(&[("DOWNLOADER", "transmission")])).unwrap_err();
-        assert!(err.to_string().contains("DOWNLOADER"), "unexpected error: {err}");
+        let err =
+            Config::init_from_hashmap(&hashmap(&[("DOWNLOADER", "transmission")])).unwrap_err();
+        assert!(
+            err.to_string().contains("DOWNLOADER"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
