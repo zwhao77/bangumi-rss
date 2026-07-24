@@ -67,9 +67,9 @@ impl TorrentDownloader for MockDownloader {
             .find(|t| t.infohash == infohash)
             .ok_or_else(|| anyhow::anyhow!("mock task not found: {infohash}"))?;
 
-        Ok(vec![TorrentFile {
-            name: format!("[MockSubs] {} - 01 [1080p].mkv", task.name),
-        }])
+        let name = format!("[MockSubs] {} - 01 [1080p].mkv", task.name);
+        log::debug!("[mock-dl] list_files: infohash={infohash} → {name}");
+        Ok(vec![TorrentFile { name }])
     }
 
     fn rename_file(&self, infohash: &str, _old_path: &str, new_name: &str) -> anyhow::Result<bool> {
@@ -101,6 +101,7 @@ impl TorrentDownloader for MockDownloader {
         use std::hash::{Hash, Hasher};
 
         let tasks = self.tasks.lock().unwrap();
+        log::debug!("[mock-dl] query_all: {} tasks", tasks.len());
         Ok(tasks
             .iter()
             .map(|t| {
@@ -170,44 +171,75 @@ impl RssFetcher for MockRssClient {
 
 // ── Mock file system ──
 
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+mod mock_fs {
+    use std::collections::{HashMap, HashSet};
+    use std::path::{Path, PathBuf};
 
-use crate::traits::FileOps;
+    use crate::traits::FileOps;
 
-/// Fake file system — tracks created dirs and moved files in memory.
-pub struct MockFileSystem {
-    dirs: Mutex<HashSet<PathBuf>>,
-    moves: Mutex<Vec<(PathBuf, PathBuf)>>,
-    pub existing: Mutex<HashSet<PathBuf>>,
-}
+    /// Fake file system — tracks created dirs, moved files, and file contents in memory.
+    pub struct MockFileSystem {
+        dirs: std::sync::Mutex<HashSet<PathBuf>>,
+        moves: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
+        pub existing: std::sync::Mutex<HashSet<PathBuf>>,
+        files: std::sync::Mutex<HashMap<PathBuf, String>>,
+    }
 
-impl MockFileSystem {
-    pub fn new() -> Self {
-        Self {
-            dirs: Mutex::new(HashSet::new()),
-            moves: Mutex::new(Vec::new()),
-            existing: Mutex::new(HashSet::new()),
+    impl MockFileSystem {
+        pub fn new() -> Self {
+            Self {
+                dirs: std::sync::Mutex::new(HashSet::new()),
+                moves: std::sync::Mutex::new(Vec::new()),
+                existing: std::sync::Mutex::new(HashSet::new()),
+                files: std::sync::Mutex::new(HashMap::new()),
+            }
+        }
+
+        pub fn move_count(&self) -> usize {
+            self.moves.lock().unwrap().len()
         }
     }
 
-    pub fn move_count(&self) -> usize {
-        self.moves.lock().unwrap().len()
+    impl FileOps for MockFileSystem {
+        fn ensure_dir(&self, path: &Path) -> anyhow::Result<()> {
+            self.dirs.lock().unwrap().insert(path.to_path_buf());
+            log::debug!("[mock-fs] ensure_dir: {path:?}");
+            Ok(())
+        }
+
+        fn move_file(&self, from: &Path, to: &Path) -> anyhow::Result<()> {
+            self.moves
+                .lock()
+                .unwrap()
+                .push((from.to_path_buf(), to.to_path_buf()));
+            log::debug!("[mock-fs] move: {from:?} → {to:?}");
+            Ok(())
+        }
+
+        fn read_to_string(&self, path: &Path) -> anyhow::Result<String> {
+            let content = self
+                .files
+                .lock()
+                .unwrap()
+                .get(path)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("mock file not found: {path:?}"));
+            match &content {
+                Ok(s) => log::debug!("[mock-fs] read: {path:?} ({} bytes)", s.len()),
+                Err(e) => log::debug!("[mock-fs] read miss: {path:?} — {e}"),
+            }
+            content
+        }
+
+        fn write_string(&self, path: &Path, content: &str) -> anyhow::Result<()> {
+            self.files
+                .lock()
+                .unwrap()
+                .insert(path.to_path_buf(), content.to_string());
+            log::debug!("[mock-fs] write: {path:?} ({} bytes)", content.len());
+            Ok(())
+        }
     }
 }
 
-impl FileOps for MockFileSystem {
-    fn ensure_dir(&self, path: &Path) -> anyhow::Result<()> {
-        self.dirs.lock().unwrap().insert(path.to_path_buf());
-        Ok(())
-    }
-
-    fn move_file(&self, from: &Path, to: &Path) -> anyhow::Result<()> {
-        self.moves
-            .lock()
-            .unwrap()
-            .push((from.to_path_buf(), to.to_path_buf()));
-        log::debug!("[mock-fs] move: {from:?} → {to:?}");
-        Ok(())
-    }
-}
+pub use mock_fs::MockFileSystem;

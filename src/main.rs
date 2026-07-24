@@ -16,9 +16,9 @@ use envconfig::Envconfig;
 use crate::config::{Config, Downloader};
 use crate::core::effect::Effect;
 use crate::core::event::Event;
-use crate::core::state::AppState;
 use services::EffectExecutor;
 use services::TimerManager;
+use services::persistence::load_state;
 use services::start_server;
 
 const CHANNEL_CAPACITY: usize = 256;
@@ -37,8 +37,16 @@ fn main() -> anyhow::Result<()> {
     let (event_tx, event_rx) = bounded::<Event>(CHANNEL_CAPACITY);
     let (effect_tx, effect_rx) = bounded::<Effect>(CHANNEL_CAPACITY);
 
+    // ── file system (needed before state loading) ──
+    let fs_ops: Arc<dyn crate::traits::FileOps> = if config.mock_downloader {
+        Arc::new(services::MockFileSystem::new())
+    } else {
+        Arc::new(services::RealFileSystem)
+    };
+    let data_dir = config.data_dir.clone().unwrap_or_else(|| ".".into());
+
     // ── shared state (owned by logic thread) ──
-    let mut state = AppState::load(config.data_dir.as_deref().unwrap_or(".")).unwrap_or_default();
+    let mut state = load_state(&*fs_ops, &data_dir).unwrap_or_default();
 
     // Fill dirs from env if not already set in state.
     if state.download_dir.is_empty() {
@@ -69,7 +77,7 @@ fn main() -> anyhow::Result<()> {
         ))
     };
 
-    let fs_ops = Arc::new(services::RealFileSystem);
+    let fs_ops_for_executor = Arc::clone(&fs_ops);
     let notifier = Arc::new(services::NoopNotifier);
 
     // ── event sources (publish to event_tx) ──
@@ -103,8 +111,9 @@ fn main() -> anyhow::Result<()> {
     if !config.no_server {
         let tx = event_tx.clone();
         let port = config.port;
+        let fs = Arc::clone(&fs_ops);
         thread::spawn(move || {
-            start_server(tx, port);
+            start_server(tx, port, fs);
             log::warn!("HTTP server thread exited");
         });
     } else {
@@ -115,7 +124,7 @@ fn main() -> anyhow::Result<()> {
     let executor = EffectExecutor {
         rss: rss_client,
         downloader,
-        fs: fs_ops,
+        fs: fs_ops_for_executor,
         notifier,
         event_tx: event_tx.clone(),
         effect_tx: effect_tx.clone(),
@@ -125,7 +134,7 @@ fn main() -> anyhow::Result<()> {
 
     // ── logic thread (owns AppState, runs pure reducer) ──
     let logic_handle = thread::spawn(move || {
-        crate::core::event::run_logic(event_rx, effect_tx, state);
+        crate::core::event::run_logic(event_rx, effect_tx, state, fs_ops, data_dir);
     });
 
     logic_handle.join().ok();

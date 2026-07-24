@@ -25,23 +25,17 @@ use crate::types::AnimeIdentity;
 /// This is the **only** place where side effects happen.
 /// Produces follow-up effects (fed back into `effect_tx`) and
 /// feedback events (sent to `event_tx`, e.g. `DownloadStarted`).
-pub struct EffectExecutor<R: ?Sized, D: ?Sized, F, N> {
-    pub rss: Arc<R>,
-    pub downloader: Arc<D>,
-    pub fs: Arc<F>,
-    pub notifier: Arc<N>,
+pub struct EffectExecutor {
+    pub rss: Arc<dyn RssFetcher>,
+    pub downloader: Arc<dyn TorrentDownloader>,
+    pub fs: Arc<dyn FileOps>,
+    pub notifier: Arc<dyn Notifier>,
     pub event_tx: Sender<Event>,
     /// For self-call patterns: spawned threads feed effects back to this executor.
     pub effect_tx: Sender<Effect>,
 }
 
-impl<R: ?Sized, D: ?Sized, F, N> EffectExecutor<R, D, F, N>
-where
-    R: RssFetcher + 'static,
-    D: TorrentDownloader + 'static,
-    F: FileOps + 'static,
-    N: Notifier + 'static,
-{
+impl EffectExecutor {
     /// Block on `rx`, execute each effect, push follow-up effects to `tx`.
     pub fn run(&self, rx: Receiver<Effect>, tx: Sender<Effect>) {
         log::info!("started");

@@ -21,4 +21,12 @@ impl FileOps for RealFileSystem {
     fn ensure_dir(&self, path: &Path) -> anyhow::Result<()> {
         Ok(std::fs::create_dir_all(path)?)
     }
+
+    fn read_to_string(&self, path: &Path) -> anyhow::Result<String> {
+        Ok(std::fs::read_to_string(path)?)
+    }
+
+    fn write_string(&self, path: &Path, content: &str) -> anyhow::Result<()> {
+        Ok(std::fs::write(path, content)?)
+    }
 }

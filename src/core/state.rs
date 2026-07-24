@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use uuid::Uuid;
 
 use crate::types::{AnimeIdentity, BangumiInfo, EpisodeRecord, RecordStatus};
@@ -37,25 +36,16 @@ pub struct AppState {
 }
 
 impl AppState {
-    // ── persistence ──
+    // ── serde (no I/O) ──
 
-    pub fn load(data_dir: &str) -> Option<Self> {
-        let path = data_path(data_dir);
-        if !path.exists() {
-            return None;
-        }
-        let content = std::fs::read_to_string(&path).ok()?;
-        serde_json::from_str(&content).ok()
+    /// Deserialize from a JSON string.
+    pub fn from_json(json: &str) -> Option<Self> {
+        serde_json::from_str(json).ok()
     }
 
-    pub fn save(&self) -> anyhow::Result<()> {
-        let path = data_path(&std::env::var("DATA_DIR").unwrap_or_default());
-        let tmp = path.with_extension("tmp");
-
-        let content = serde_json::to_string_pretty(self)?;
-        std::fs::write(&tmp, content)?;
-        std::fs::rename(&tmp, &path)?;
-        Ok(())
+    /// Serialize to pretty-printed JSON.
+    pub fn to_json_pretty(&self) -> anyhow::Result<String> {
+        Ok(serde_json::to_string_pretty(self)?)
     }
 
     // ── consuming builders ──
@@ -134,13 +124,5 @@ impl AppState {
     pub fn with_downloads_cached(mut self, downloads: Vec<crate::types::DownloadInfo>) -> Self {
         self.cached_downloads = downloads;
         self
-    }
-}
-
-fn data_path(data_dir: &str) -> PathBuf {
-    if data_dir.is_empty() {
-        PathBuf::from("state.json")
-    } else {
-        PathBuf::from(data_dir).join("state.json")
     }
 }

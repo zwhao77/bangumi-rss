@@ -1,12 +1,16 @@
-use crate::core::event::Event;
-use crate::types::{ApiResponse, BangumiInfo};
-use crate::utils::preview;
+use std::path::Path;
+use std::sync::Arc;
+use tiny_http::{Method, Response};
+
 use crossbeam_channel::Sender;
 use matchit::Router;
 use std::io::Read;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use tiny_http::{Method, Response};
+
+use crate::core::event::Event;
+use crate::traits::FileOps;
+use crate::types::{ApiResponse, BangumiInfo};
+use crate::utils::preview;
 
 const JSON_TYPE: &str = "Content-Type: application/json; charset=utf-8";
 const HTML_TYPE: &str = "Content-Type: text/html; charset=utf-8";
@@ -77,7 +81,7 @@ fn truncate(s: &str, max: usize) -> String {
 
 // ── Server ──
 
-pub fn start(event_tx: Sender<Event>, preferred: u16) {
+pub fn start(event_tx: Sender<Event>, preferred: u16, fs: Arc<dyn FileOps>) {
     let server = try_bind(preferred).unwrap_or_else(|| {
         log::info!("port {preferred} unavailable, trying OS-assigned");
         try_bind(0).unwrap_or_else(|| {
@@ -112,8 +116,8 @@ pub fn start(event_tx: Sender<Event>, preferred: u16) {
 
         let resp = match (route, method) {
             // ═══ / ═══
-            (None, _) if path == "/" => handle_index(),
-            (None, _) if path == "/style.css" => handle_style_css(),
+            (None, _) if path == "/" => handle_index(&*fs),
+            (None, _) if path == "/style.css" => handle_style_css(&*fs),
 
             // ═══ /api/feeds ═══
             (Some(Route::Feeds), Method::Get) => handle_list_feeds(&tx),
@@ -228,18 +232,18 @@ fn try_bind(port: u16) -> Option<tiny_http::Server> {
 
 // ── Route handlers ──
 
-fn handle_index() -> AppResponse {
+fn handle_index(fs: &dyn FileOps) -> AppResponse {
     AppResponse::Text {
         code: 200,
-        body: load_confirm_page(),
+        body: load_confirm_page(fs),
         content_type: HTML_TYPE,
     }
 }
 
-fn handle_style_css() -> AppResponse {
+fn handle_style_css(fs: &dyn FileOps) -> AppResponse {
     AppResponse::Text {
         code: 200,
-        body: load_style_css(),
+        body: load_style_css(fs),
         content_type: CSS_TYPE,
     }
 }
@@ -523,12 +527,12 @@ fn handle_bangumi_search(url: &str) -> AppResponse {
     }
 }
 
-fn load_confirm_page() -> String {
-    std::fs::read_to_string("res/index.html")
+fn load_confirm_page(fs: &dyn FileOps) -> String {
+    fs.read_to_string(Path::new("res/index.html"))
         .unwrap_or_else(|_| include_str!("../../res/index.html").to_string())
 }
 
-fn load_style_css() -> String {
-    std::fs::read_to_string("res/style.css")
+fn load_style_css(fs: &dyn FileOps) -> String {
+    fs.read_to_string(Path::new("res/style.css"))
         .unwrap_or_else(|_| include_str!("../../res/style.css").to_string())
 }

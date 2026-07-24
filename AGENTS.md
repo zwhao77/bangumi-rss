@@ -65,7 +65,8 @@ Event Sources (timers, server)
 | `event.rs` | `Event` enum (15 variants) + `run_logic()` loop |
 | `effect.rs` | `Effect` enum (9 variants) — pure data |
 | `logic.rs` | `reduce()` — pure reducer, one handler per event (11 tests) |
-| `state.rs` | `AppState` + `Feed` — serializable, CoW builders, URL dedup |
+| `state.rs` | `AppState` + `Feed` — pure data, CoW builders, serde only |
+| `persistence.rs` | `load_state()` / `save_state()` — disk I/O via `FileOps` trait |
 | `server.rs` | `tiny_http` API + two-step feed confirmation page at `/` |
 | `feed.rs` | RSS-related utilities (placeholder) |
 | `handler.rs` | Pure post‑download logic: `resolve_files`, toolkit functions (9 tests) |

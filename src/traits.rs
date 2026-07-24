@@ -52,6 +52,12 @@ pub trait FileOps: Send + Sync {
 
     /// Ensure a directory exists, creating parents as needed.
     fn ensure_dir(&self, path: &Path) -> anyhow::Result<()>;
+
+    /// Read the entire contents of a file into a String.
+    fn read_to_string(&self, path: &Path) -> anyhow::Result<String>;
+
+    /// Write a string to a file, overwriting if it exists.
+    fn write_string(&self, path: &Path, content: &str) -> anyhow::Result<()>;
 }
 
 /// Sends out-of-band notifications (webhook, Server酱, etc.).
