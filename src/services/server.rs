@@ -40,6 +40,7 @@ enum Route {
     FeedPreview,      // POST /api/feeds/preview
     Downloads,        // GET /api/downloads
     DownloadsRefresh, // POST /api/downloads/refresh
+    Poll,             // POST /api/poll
     BangumiSubjects,  // GET /api/bangumi/subjects/{id}
     BangumiSearch,    // GET /api/bangumi/search
     ImageProxy,       // GET /api/bangumi/image
@@ -54,6 +55,7 @@ fn build_router() -> Router<Route> {
     r.insert("/api/downloads", Route::Downloads).unwrap();
     r.insert("/api/downloads/refresh", Route::DownloadsRefresh)
         .unwrap();
+    r.insert("/api/poll", Route::Poll).unwrap();
     r.insert("/api/bangumi/subjects/{id}", Route::BangumiSubjects)
         .unwrap();
     r.insert("/api/bangumi/search", Route::BangumiSearch)
@@ -144,6 +146,9 @@ pub fn start(event_tx: Sender<Event>, preferred: u16, fs: Arc<dyn FileOps>) {
             // ═══ /api/downloads ═══
             (Some(Route::Downloads), Method::Get) => handle_list_downloads(&tx),
             (Some(Route::DownloadsRefresh), Method::Post) => handle_refresh(&tx),
+
+            // ═══ /api/poll ═══
+            (Some(Route::Poll), Method::Post) => handle_poll(&tx),
 
             // ═══ /api/bangumi ═══
             (Some(Route::BangumiSubjects), Method::Get) => {
@@ -399,6 +404,16 @@ fn handle_feed_update_all(tx: &Sender<Event>) -> AppResponse {
     AppResponse::Text {
         code: 200,
         body: r#"{"success":true,"message":"RSS refresh triggered"}"#.into(),
+        content_type: JSON_TYPE,
+    }
+}
+
+/// POST /api/poll — trigger immediate downloader poll (completed/failed).
+fn handle_poll(tx: &Sender<Event>) -> AppResponse {
+    let _ = tx.send(Event::PollDownloader);
+    AppResponse::Text {
+        code: 200,
+        body: r#"{"success":true,"message":"downloader poll triggered"}"#.into(),
         content_type: JSON_TYPE,
     }
 }
