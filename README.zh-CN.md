@@ -53,6 +53,7 @@ LIBRARY_DIR=/anime \
 | `QBITTORRENT_USER` | `admin` | qBittorrent 用户名 |
 | `QBITTORRENT_PASS` | `adminadmin` | qBittorrent 密码 |
 | `BANGUMI_API_BASE` | `https://api.bgm.tv` | Bangumi API 基础 URL |
+| `MAX_CONCURRENCY` | `8` | 最大并发 HTTP 请求数 |
 | `RUST_LOG` | `info` | 日志级别（设为 `warn` 可减少输出） |
 
 ## 架构

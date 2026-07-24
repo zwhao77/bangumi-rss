@@ -53,6 +53,7 @@ Open `http://localhost:7893` in browser to subscribe and manage.
 | `QBITTORRENT_USER` | `admin` | qBittorrent username |
 | `QBITTORRENT_PASS` | `adminadmin` | qBittorrent password |
 | `BANGUMI_API_BASE` | `https://api.bgm.tv` | Bangumi API base URL |
+| `MAX_CONCURRENCY` | `8` | Max concurrent HTTP requests |
 | `RUST_LOG` | `info` | Log level (`warn` to quieten, `debug` for verbose) |
 
 ## Architecture

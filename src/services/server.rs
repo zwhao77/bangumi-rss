@@ -85,7 +85,12 @@ fn truncate(s: &str, max: usize) -> String {
 
 // ── Server ──
 
-pub fn start(event_tx: Sender<Event>, preferred: u16, fs: Arc<dyn FileOps>, max_concurrency: usize) {
+pub fn start(
+    event_tx: Sender<Event>,
+    preferred: u16,
+    fs: Arc<dyn FileOps>,
+    max_concurrency: usize,
+) {
     let server = try_bind(preferred).unwrap_or_else(|| {
         log::info!("port {preferred} unavailable, trying OS-assigned");
         try_bind(0).unwrap_or_else(|| {
