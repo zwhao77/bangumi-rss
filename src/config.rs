@@ -55,6 +55,8 @@ pub struct Config {
     pub auth_username: String,
     #[envconfig(from = "AUTH_PASSWORD", default = "")]
     pub auth_password: String,
+    #[envconfig(from = "BIND_ADDR", default = "127.0.0.1")]
+    pub bind_addr: String,
 }
 
 /// Default HTTP timeout for all outbound requests (RSS, torrent, Aria2 RPC, etc.).

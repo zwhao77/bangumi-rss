@@ -71,13 +71,13 @@ Event Sources (timers, server)
 | `feed.rs` | RSS-related utilities (placeholder) |
 | `handler.rs` | Pure post‑download logic: `resolve_files`, toolkit functions (9 tests) |
 | `tokenizer.rs` | Regex-based torrent title parser + batch detection (2 tests) |
+| `utils/rss.rs` | Pure RSS XML parsing: `parse_rss()`, `parse_preview()` (6 tests) |
 | `types.rs` | Core types: `EpisodeRecord`, `EpisodeKey`, `AnimeIdentity`, `ResolvedEpisode`, `DownloadSnapshot`, `DownloadInfo` |
-| `traits.rs` | Service abstractions: `RssFetcher`, `TorrentDownloader`, `FileOps`, `Notifier`, `BangumiSearcher` |
+| `traits.rs` | Service abstractions: `TorrentDownloader`, `FileOps`, `Notifier`, `BangumiSearcher` |
 | `services/mod.rs` | `EffectExecutor<R,D,F,N,B>` — generic effect runner |
-| `services/rss.rs` | `RssClient` — ureq-based XML RSS parser + `fetch_preview` (1 test) |
 | `services/downloader.rs` | `Aria2Downloader` — stateless JSON-RPC client, paginated gid lookup (1 test) |
 | `services/qbittorrent.rs` | `QbittorrentDownloader` — Web API client with SID cookie auth |
-| `services/mock.rs` | `MockDownloader`, `MockRssClient`, `MockFileSystem` (all use `Mutex` for thread safety) |
+| `services/mock.rs` | `MockDownloader`, `MockFileSystem` (all use `Mutex` for thread safety) |
 | `services/fs.rs` | `RealFileSystem` — thin `std::fs` wrapper |
 | `services/notify.rs` | `NoopNotifier` (Server酱 TODO) |
 | `services/bangumi.rs` | `bangumi::search()`, `bangumi::detail()` — old API (no-auth), serde-deserialized (5 tests) |

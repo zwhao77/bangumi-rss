@@ -117,6 +117,7 @@ fn main() -> anyhow::Result<()> {
         thread::spawn(move || {
             start_server(
                 tx,
+                &config.bind_addr,
                 port,
                 fs,
                 config.max_concurrency,

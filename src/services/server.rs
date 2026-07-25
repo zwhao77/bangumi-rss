@@ -82,15 +82,16 @@ fn truncate(s: &str, max: usize) -> String {
 
 pub fn start(
     event_tx: Sender<Event>,
+    bind_addr: &str,
     preferred: u16,
     fs: Arc<dyn FileOps>,
     max_concurrency: usize,
     auth_username: &str,
     auth_password: &str,
 ) {
-    let server = try_bind(preferred).unwrap_or_else(|| {
+    let server = try_bind(bind_addr, preferred).unwrap_or_else(|| {
         log::info!("port {preferred} unavailable, trying OS-assigned");
-        try_bind(0).unwrap_or_else(|| {
+        try_bind(bind_addr, 0).unwrap_or_else(|| {
             log::error!("fatal: failed to bind any port");
             std::process::exit(1);
         })
@@ -101,7 +102,7 @@ pub fn start(
         .to_ip()
         .map(|a| a.port())
         .unwrap_or(preferred);
-    log::info!("listening on http://127.0.0.1:{actual_port}");
+    log::info!("listening on http://{bind_addr}:{actual_port}");
 
     let router = build_router();
     let tx = Arc::new(event_tx);
@@ -238,8 +239,8 @@ fn respond(request: tiny_http::Request, resp: AppResponse, url: &str) {
 // ── Server binding ──
 
 /// Try to bind to a specific port. Returns `None` if the port is unavailable.
-fn try_bind(port: u16) -> Option<tiny_http::Server> {
-    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().ok()?;
+fn try_bind(bind_addr: &str, port: u16) -> Option<tiny_http::Server> {
+    let addr: SocketAddr = format!("{bind_addr}:{port}").parse().ok()?;
     tiny_http::Server::http(addr).ok()
 }
 
