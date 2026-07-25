@@ -1,8 +1,27 @@
-//! RSS XML parsing — pure function, no I/O.
+//! RSS XML parsing + HTTP fetch helper.
 //!
-//! Separated from HTTP download so parsing is testable with literal XML strings.
+//! Parsing functions are pure (no I/O).  `fetch_rss_body` is shared by
+//! the WorkerPool (background polling) and preview (server path).
+
+use std::io::Read;
 
 use crate::types::{RssItem, RssPreview};
+
+/// Fetch RSS body with timeout and 1 MB size limit.
+pub fn fetch_rss_body(url: &str) -> anyhow::Result<String> {
+    const MAX: u64 = 1_048_576;
+    let resp = ureq::get(url)
+        .timeout(std::time::Duration::from_secs(
+            crate::config::HTTP_TIMEOUT_SECS,
+        ))
+        .call()?;
+    let mut body = String::new();
+    resp.into_reader().take(MAX + 1).read_to_string(&mut body)?;
+    if body.len() > MAX as usize {
+        anyhow::bail!("RSS response too large: {} bytes", body.len());
+    }
+    Ok(body)
+}
 
 /// Parse an RSS XML body into a list of torrent items.
 pub fn parse_rss(body: &str) -> anyhow::Result<Vec<RssItem>> {

@@ -267,6 +267,10 @@
             document.getElementById('result').style.display = 'none';
             try {
                 const resp = await fetch('/api/feeds/preview', { method: 'POST', body: url });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.message || `HTTP ${resp.status}`);
+                }
                 const data = await resp.json();
                 window._bangumiInfo = data.bangumi_info || null;
                 window._rssPreview = { group: data.group, latest_episode: data.latest_episode, sample_titles: data.sample_titles, suggested_season: data.suggested_season };

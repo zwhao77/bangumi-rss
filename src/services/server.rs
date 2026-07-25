@@ -116,15 +116,18 @@ pub fn start(
 
         // ── Basic Auth check ──
         if !auth_username.is_empty() {
-            let authorized = request.headers().iter().find(|h| {
-                h.field.equiv("Authorization")
-            }).and_then(|h| {
-                let h = h.value.as_str().strip_prefix("Basic ")?;
-                let decoded = base64::engine::general_purpose::STANDARD.decode(h).ok()?;
-                let s = std::str::from_utf8(&decoded).ok()?;
-                let (u, p) = s.split_once(':')?;
-                Some(u == auth_username && p == auth_password)
-            }).unwrap_or(false);
+            let authorized = request
+                .headers()
+                .iter()
+                .find(|h| h.field.equiv("Authorization"))
+                .and_then(|h| {
+                    let h = h.value.as_str().strip_prefix("Basic ")?;
+                    let decoded = base64::engine::general_purpose::STANDARD.decode(h).ok()?;
+                    let s = std::str::from_utf8(&decoded).ok()?;
+                    let (u, p) = s.split_once(':')?;
+                    Some(u == auth_username && p == auth_password)
+                })
+                .unwrap_or(false);
 
             if !authorized {
                 let _ = request.respond(
@@ -284,12 +287,20 @@ fn handle_preview(body: &str) -> AppResponse {
             content_type: JSON_TYPE,
         };
     }
-    let preview = preview::fetch_feed_preview(url).unwrap_or_default();
-    let json = serde_json::to_string(&preview).unwrap_or_default();
-    AppResponse::Text {
-        code: 200,
-        body: json,
-        content_type: JSON_TYPE,
+    match preview::fetch_feed_preview(url) {
+        Ok(preview) => {
+            let json = serde_json::to_string(&preview).unwrap_or_default();
+            AppResponse::Text {
+                code: 200,
+                body: json,
+                content_type: JSON_TYPE,
+            }
+        }
+        Err(e) => AppResponse::Text {
+            code: 400,
+            body: serde_json::json!({"success":false,"message":format!("{e}")}).to_string(),
+            content_type: JSON_TYPE,
+        },
     }
 }
 
@@ -465,8 +476,7 @@ fn handle_bangumi_subject(id_str: &str) -> AppResponse {
     match crate::services::bangumi::detail(id) {
         Ok(Some(info)) => AppResponse::Text {
             code: 200,
-            body: serde_json::json!({"success":true,"bangumi_info":info})
-                .to_string(),
+            body: serde_json::json!({"success":true,"bangumi_info":info}).to_string(),
             content_type: JSON_TYPE,
         },
         Ok(None) => AppResponse::Text {

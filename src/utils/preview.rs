@@ -14,10 +14,7 @@ use crate::utils::tokenizer;
 ///   1. Tokenize all item titles → first successful name + season
 ///   2. Fallback: raw first item title
 pub fn fetch_feed_preview(url: &str) -> anyhow::Result<FeedPreview> {
-    let body = ureq::get(url)
-        .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
-        .call()?
-        .into_string()?;
+    let body = rss::fetch_rss_body(url)?;
     let rss = rss::parse_preview(&body)?;
 
     // ── Step 1: tokenize item titles ──

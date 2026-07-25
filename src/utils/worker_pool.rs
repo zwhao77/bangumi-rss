@@ -39,7 +39,9 @@ impl Job {
                 log::info!("downloading torrent: {uri}");
                 match (|| -> anyhow::Result<Vec<u8>> {
                     let resp = ureq::get(&uri)
-                        .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
+                        .timeout(std::time::Duration::from_secs(
+                            crate::config::HTTP_TIMEOUT_SECS,
+                        ))
                         .call()?;
                     let mut bytes: Vec<u8> = Vec::new();
                     resp.into_reader().read_to_end(&mut bytes)?;
@@ -69,21 +71,8 @@ impl Job {
             } => {
                 log::debug!("fetching RSS: feed={feed_id}");
                 match (|| -> anyhow::Result<Vec<crate::types::RssItem>> {
-                    const MAX: u64 = 1_048_576; // 1 MB
-                    let resp = ureq::get(&url)
-                        .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
-                        .call()?;
-                    let mut body = String::new();
-                    resp.into_reader()
-                        .take(MAX + 1)
-                        .read_to_string(&mut body)?;
-                    if body.len() > MAX as usize {
-                        anyhow::bail!("RSS response too large: {} bytes", body.len());
-                    }
-                    log::info!(
-                        "RSS body: {} bytes for feed={feed_id}",
-                        body.len()
-                    );
+                    let body = crate::utils::rss::fetch_rss_body(&url)?;
+                    log::info!("RSS body: {} bytes for feed={feed_id}", body.len());
                     crate::utils::rss::parse_rss(&body)
                 })() {
                     Ok(items) => {
