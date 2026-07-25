@@ -51,6 +51,10 @@ pub struct Config {
     pub torrent_concurrency: usize,
     #[envconfig(from = "QUEUE_CAPACITY", default = "512")]
     pub queue_capacity: usize,
+    #[envconfig(from = "AUTH_USERNAME", default = "")]
+    pub auth_username: String,
+    #[envconfig(from = "AUTH_PASSWORD", default = "")]
+    pub auth_password: String,
 }
 
 /// Default HTTP timeout for all outbound requests (RSS, torrent, Aria2 RPC, etc.).

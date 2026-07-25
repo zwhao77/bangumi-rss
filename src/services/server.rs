@@ -10,6 +10,8 @@ use tiny_http::{Method, Response};
 use crate::core::event::Event;
 use crate::traits::FileOps;
 use crate::types::{ApiResponse, BangumiInfo};
+use base64::Engine as _;
+
 use crate::utils::preview;
 
 const JSON_TYPE: &str = "Content-Type: application/json; charset=utf-8";
@@ -83,6 +85,8 @@ pub fn start(
     preferred: u16,
     fs: Arc<dyn FileOps>,
     max_concurrency: usize,
+    auth_username: &str,
+    auth_password: &str,
 ) {
     let server = try_bind(preferred).unwrap_or_else(|| {
         log::info!("port {preferred} unavailable, trying OS-assigned");
@@ -108,6 +112,32 @@ pub fn start(
         let tx = tx.clone();
         let method = request.method().clone();
         let url = request.url().to_string();
+
+        // ── Basic Auth check ──
+        if !auth_username.is_empty() {
+            let authorized = request.headers().iter().find(|h| {
+                h.field.equiv("Authorization")
+            }).and_then(|h| {
+                let h = h.value.as_str().strip_prefix("Basic ")?;
+                let decoded = base64::engine::general_purpose::STANDARD.decode(h).ok()?;
+                let s = std::str::from_utf8(&decoded).ok()?;
+                let (u, p) = s.split_once(':')?;
+                Some(u == auth_username && p == auth_password)
+            }).unwrap_or(false);
+
+            if !authorized {
+                let _ = request.respond(
+                    Response::from_string("401 Unauthorized")
+                        .with_status_code(401)
+                        .with_header(
+                            "WWW-Authenticate: Basic realm=\"bangumi-rss\""
+                                .parse::<tiny_http::Header>()
+                                .unwrap(),
+                        ),
+                );
+                continue;
+            }
+        }
 
         let mut body = String::new();
         let _ = request.as_reader().read_to_string(&mut body);
