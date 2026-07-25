@@ -342,4 +342,10 @@ impl TorrentDownloader for QbittorrentDownloader {
             })
             .collect())
     }
+
+    fn check_connection(&self) -> anyhow::Result<()> {
+        self.login()
+            .ok_or_else(|| anyhow::anyhow!("qbittorrent not reachable or login failed"))?;
+        Ok(())
+    }
 }

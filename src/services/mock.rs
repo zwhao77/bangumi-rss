@@ -135,6 +135,10 @@ impl TorrentDownloader for MockDownloader {
             })
             .collect())
     }
+
+    fn check_connection(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 // ── Mock file system ──

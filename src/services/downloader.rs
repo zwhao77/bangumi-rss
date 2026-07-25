@@ -14,16 +14,25 @@ use crate::types::{CompletedDownload, DownloadSnapshot, TorrentFile};
 /// Holds no mutable state — safe to share via `Arc`.
 pub struct Aria2Downloader {
     rpc_url: String,
+    secret: String,
 }
 
 impl Aria2Downloader {
-    pub fn with_rpc_url(rpc_url: String) -> Self {
-        Self { rpc_url }
+    pub fn with_rpc_url(rpc_url: String, secret: String) -> Self {
+        Self { rpc_url, secret }
     }
 
     // ── Low-level JSON-RPC ──
 
     fn rpc(&self, method: &str, params: &[serde_json::Value]) -> Option<serde_json::Value> {
+        // Prepend token if configured (aria2 --rpc-secret).
+        let params = if self.secret.is_empty() {
+            params.to_vec()
+        } else {
+            let mut p = vec![serde_json::json!(format!("token:{}", self.secret))];
+            p.extend_from_slice(params);
+            p
+        };
         let payload = serde_json::json!({
             "jsonrpc": "2.0",
             "id": "1",
@@ -383,6 +392,12 @@ impl TorrentDownloader for Aria2Downloader {
         }
         Ok(snapshots)
     }
+
+    fn check_connection(&self) -> anyhow::Result<()> {
+        self.rpc("getVersion", &[])
+            .ok_or_else(|| anyhow::anyhow!("aria2 not reachable or authentication failed"))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -395,6 +410,7 @@ mod tests {
     fn with_gid_miss_returns_error() {
         let dl = Aria2Downloader {
             rpc_url: String::new(),
+            secret: String::new(),
         };
         let result = dl.with_gid("deadbeef");
         assert!(result.is_err());

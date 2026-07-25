@@ -37,6 +37,8 @@ pub struct Config {
     pub rss_interval: u64,
     #[envconfig(from = "ARIA2_RPC_URL", default = "http://localhost:6800/jsonrpc")]
     pub aria2_rpc_url: String,
+    #[envconfig(from = "ARIA2_RPC_TOKEN", default = "")]
+    pub aria2_rpc_token: String,
     #[envconfig(from = "QBITTORRENT_URL", default = "http://localhost:8080")]
     pub qbittorrent_url: String,
     #[envconfig(from = "QBITTORRENT_USER", default = "admin")]

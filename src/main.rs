@@ -76,11 +76,22 @@ fn main() -> anyhow::Result<()> {
     } else {
         Arc::new(services::Aria2Downloader::with_rpc_url(
             config.aria2_rpc_url,
+            config.aria2_rpc_token,
         ))
     };
 
     let fs_ops_for_executor = Arc::clone(&fs_ops);
     let notifier = Arc::new(services::NoopNotifier);
+
+    // ── Verify downloader connectivity ──
+    if let Err(e) = downloader.check_connection() {
+        log::warn!("downloader check failed: {e}");
+        log::warn!(
+            "the service will start, but downloads will not work until the downloader is available"
+        );
+    } else {
+        log::info!("downloader connection OK");
+    }
 
     // ── event sources (publish to event_tx) ──
 
@@ -112,17 +123,20 @@ fn main() -> anyhow::Result<()> {
     // HTTP API server — skippable via NO_SERVER.
     if !config.no_server {
         let tx = event_tx.clone();
-        let port = config.port;
         let fs = Arc::clone(&fs_ops);
+        let dl = downloader.clone();
         thread::spawn(move || {
             start_server(
                 tx,
-                &config.bind_addr,
-                port,
+                dl,
                 fs,
-                config.max_concurrency,
-                &config.auth_username,
-                &config.auth_password,
+                services::server::ServerConfig {
+                    bind_addr: config.bind_addr,
+                    port: config.port,
+                    max_concurrency: config.max_concurrency,
+                    auth_username: config.auth_username,
+                    auth_password: config.auth_password,
+                },
             );
             log::warn!("HTTP server thread exited");
         });

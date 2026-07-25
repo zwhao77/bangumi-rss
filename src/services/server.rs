@@ -1,4 +1,3 @@
-use std::io::Read;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -8,7 +7,7 @@ use matchit::Router;
 use tiny_http::{Method, Response};
 
 use crate::core::event::Event;
-use crate::traits::FileOps;
+use crate::traits::{FileOps, TorrentDownloader};
 use crate::types::{ApiResponse, BangumiInfo};
 use base64::Engine as _;
 
@@ -18,7 +17,17 @@ const JSON_TYPE: &str = "Content-Type: application/json; charset=utf-8";
 const HTML_TYPE: &str = "Content-Type: text/html; charset=utf-8";
 const CSS_TYPE: &str = "Content-Type: text/css; charset=utf-8";
 
-/// Unified response type — every handler returns this, `respond()` sends it.
+// ── Server config ──
+
+pub struct ServerConfig {
+    pub bind_addr: String,
+    pub port: u16,
+    pub max_concurrency: usize,
+    pub auth_username: String,
+    pub auth_password: String,
+}
+
+// ── Unified response type ──
 enum AppResponse {
     Text {
         code: u16,
@@ -40,22 +49,31 @@ enum Route {
     Poll,             // POST /api/poll
     BangumiSubjects,  // GET /api/bangumi/subjects/{id}
     BangumiSearch,    // GET /api/bangumi/search
+    Health,           // GET /api/health
 }
 
 fn build_router() -> Router<Route> {
     let mut r = Router::new();
-    r.insert("/api/feeds", Route::Feeds).unwrap();
-    r.insert("/api/feeds/update", Route::FeedUpdate).unwrap();
-    r.insert("/api/feeds/{id}", Route::FeedId).unwrap();
-    r.insert("/api/feeds/preview", Route::FeedPreview).unwrap();
-    r.insert("/api/downloads", Route::Downloads).unwrap();
+    r.insert("/api/feeds", Route::Feeds)
+        .expect("route: /api/feeds");
+    r.insert("/api/feeds/update", Route::FeedUpdate)
+        .expect("route: /api/feeds/update");
+    r.insert("/api/feeds/{id}", Route::FeedId)
+        .expect("route: /api/feeds/{id}");
+    r.insert("/api/feeds/preview", Route::FeedPreview)
+        .expect("route: /api/feeds/preview");
+    r.insert("/api/downloads", Route::Downloads)
+        .expect("route: /api/downloads");
     r.insert("/api/downloads/refresh", Route::DownloadsRefresh)
-        .unwrap();
-    r.insert("/api/poll", Route::Poll).unwrap();
+        .expect("route: /api/downloads/refresh");
     r.insert("/api/bangumi/subjects/{id}", Route::BangumiSubjects)
-        .unwrap();
+        .expect("route: /api/bangumi/subjects/{id}");
     r.insert("/api/bangumi/search", Route::BangumiSearch)
-        .unwrap();
+        .expect("route: /api/bangumi/search");
+    r.insert("/api/poll", Route::Poll)
+        .expect("route: /api/poll");
+    r.insert("/api/health", Route::Health)
+        .expect("route: /api/health");
     r
 }
 
@@ -82,16 +100,13 @@ fn truncate(s: &str, max: usize) -> String {
 
 pub fn start(
     event_tx: Sender<Event>,
-    bind_addr: &str,
-    preferred: u16,
+    downloader: Arc<dyn TorrentDownloader>,
     fs: Arc<dyn FileOps>,
-    max_concurrency: usize,
-    auth_username: &str,
-    auth_password: &str,
+    cfg: ServerConfig,
 ) {
-    let server = try_bind(bind_addr, preferred).unwrap_or_else(|| {
-        log::info!("port {preferred} unavailable, trying OS-assigned");
-        try_bind(bind_addr, 0).unwrap_or_else(|| {
+    let server = try_bind(&cfg.bind_addr, cfg.port).unwrap_or_else(|| {
+        log::info!("port {} unavailable, trying OS-assigned", cfg.port);
+        try_bind(&cfg.bind_addr, 0).unwrap_or_else(|| {
             log::error!("fatal: failed to bind any port");
             std::process::exit(1);
         })
@@ -101,21 +116,23 @@ pub fn start(
         .server_addr()
         .to_ip()
         .map(|a| a.port())
-        .unwrap_or(preferred);
-    log::info!("listening on http://{bind_addr}:{actual_port}");
+        .unwrap_or(cfg.port);
+    log::info!("listening on http://{}:{}", cfg.bind_addr, actual_port);
 
     let router = build_router();
     let tx = Arc::new(event_tx);
-    let semaphore = Arc::new(crate::utils::semaphore::Semaphore::new(max_concurrency));
+    let dl = downloader;
+    let semaphore = Arc::new(crate::utils::semaphore::Semaphore::new(cfg.max_concurrency));
 
     for mut request in server.incoming_requests() {
         let _permit = semaphore.acquire().expect("server semaphore closed");
         let tx = tx.clone();
+        let dl = dl.clone();
         let method = request.method().clone();
         let url = request.url().to_string();
 
         // ── Basic Auth check ──
-        if !auth_username.is_empty() {
+        if !cfg.auth_username.is_empty() {
             let authorized = request
                 .headers()
                 .iter()
@@ -125,7 +142,7 @@ pub fn start(
                     let decoded = base64::engine::general_purpose::STANDARD.decode(h).ok()?;
                     let s = std::str::from_utf8(&decoded).ok()?;
                     let (u, p) = s.split_once(':')?;
-                    Some(u == auth_username && p == auth_password)
+                    Some(u == cfg.auth_username && p == cfg.auth_password)
                 })
                 .unwrap_or(false);
 
@@ -136,7 +153,7 @@ pub fn start(
                         .with_header(
                             "WWW-Authenticate: Basic realm=\"bangumi-rss\""
                                 .parse::<tiny_http::Header>()
-                                .unwrap(),
+                                .expect("invalid WWW-Authenticate header"),
                         ),
                 );
                 continue;
@@ -166,11 +183,19 @@ pub fn start(
 
             // ═══ /api/feeds/{id} ═══
             (Some(Route::FeedId), Method::Put) => {
-                let id = matched.unwrap().params.get("id").unwrap_or("");
+                let id = matched
+                    .expect("FeedId matched but no route")
+                    .params
+                    .get("id")
+                    .unwrap_or("");
                 handle_feed_update(id, &body, &tx)
             }
             (Some(Route::FeedId), Method::Delete) => {
-                let id = matched.unwrap().params.get("id").unwrap_or("");
+                let id = matched
+                    .expect("FeedId matched but no route")
+                    .params
+                    .get("id")
+                    .unwrap_or("");
                 handle_feed_delete(id, &tx)
             }
 
@@ -186,10 +211,15 @@ pub fn start(
 
             // ═══ /api/bangumi ═══
             (Some(Route::BangumiSubjects), Method::Get) => {
-                let id = matched.unwrap().params.get("id").unwrap_or("");
+                let id = matched
+                    .expect("BangumiSubjects matched but no route")
+                    .params
+                    .get("id")
+                    .unwrap_or("");
                 handle_bangumi_subject(id)
             }
             (Some(Route::BangumiSearch), Method::Get) => handle_bangumi_search(&url),
+            (Some(Route::Health), Method::Get) => handle_health(&*dl),
 
             _ => AppResponse::Text {
                 code: 404,
@@ -224,7 +254,9 @@ fn respond(request: tiny_http::Request, resp: AppResponse, url: &str) {
             body,
             content_type,
         } => {
-            let header = content_type.parse::<tiny_http::Header>().unwrap();
+            let header = content_type
+                .parse::<tiny_http::Header>()
+                .expect("invalid Content-Type header");
             request.respond(
                 Response::from_string(body)
                     .with_status_code(code)
@@ -528,6 +560,24 @@ fn handle_bangumi_search(url: &str) -> AppResponse {
         code: 200,
         body: result.to_string(),
         content_type: JSON_TYPE,
+    }
+}
+
+/// GET /api/health
+fn handle_health(dl: &dyn TorrentDownloader) -> AppResponse {
+    match dl.check_connection() {
+        Ok(()) => AppResponse::Text {
+            code: 200,
+            body: r#"{"success":true,"downloader":"connected"}"#.into(),
+            content_type: JSON_TYPE,
+        },
+        Err(e) => AppResponse::Text {
+            code: 503,
+            body:
+                serde_json::json!({"success":false,"downloader":"error","message":format!("{e}")})
+                    .to_string(),
+            content_type: JSON_TYPE,
+        },
     }
 }
 

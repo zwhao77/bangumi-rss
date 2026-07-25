@@ -9,7 +9,15 @@
 </head>
 
 <body>
-    <h2>添加 RSS 订阅</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px">
+        <h2 style="margin:0">添加 RSS 订阅</h2>
+        <div id="healthIndicator" style="display:flex;align-items:center;gap:6px;font-size:0.75rem;cursor:default"
+            title="正在检查下载器状态…">
+            <span id="healthDot"
+                style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ccc"></span>
+            <span id="healthLabel" style="color:var(--color-text-light)">检查中…</span>
+        </div>
+    </div>
 
     <div id="step1" class="card">
         <span class="label">输入 RSS 链接</span>
@@ -590,9 +598,35 @@
             });
         }
 
+        // ============ 健康检查 ============
+        async function checkHealth() {
+            const dot = document.getElementById('healthDot');
+            const label = document.getElementById('healthLabel');
+            const indicator = document.getElementById('healthIndicator');
+            try {
+                const resp = await fetch('/api/health');
+                const data = await resp.json();
+                if (resp.ok && data.success && data.downloader === 'connected') {
+                    dot.style.background = '#22c55e'; // green
+                    label.textContent = '下载器已就绪';
+                    indicator.title = 'aria2/qBittorrent 连接正常';
+                } else {
+                    dot.style.background = '#eab308'; // yellow
+                    label.textContent = data.message || '下载器未连接';
+                    indicator.title = data.message || '下载器异常，请检查配置';
+                }
+            } catch (e) {
+                dot.style.background = '#ef4444'; // red
+                label.textContent = '无法连接到服务器';
+                indicator.title = '服务端可能已停止';
+            }
+        }
+
         // 初始化
         loadFeeds();
         loadDownloads();
+        checkHealth();
+        setInterval(checkHealth, 30000); // 每 30 秒轮询
     </script>
 </body>
 

@@ -37,6 +37,9 @@ pub trait TorrentDownloader: Send + Sync {
     fn query_all(&self) -> anyhow::Result<Vec<crate::types::DownloadSnapshot>> {
         anyhow::bail!("not implemented")
     }
+
+    /// Check if the downloader is reachable and authenticated.
+    fn check_connection(&self) -> anyhow::Result<()>;
 }
 
 /// File-system operations abstracted for testability.
