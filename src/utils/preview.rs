@@ -61,14 +61,6 @@ pub fn fetch_feed_preview(url: &str) -> anyhow::Result<FeedPreview> {
         lookup_bangumi(&suggested_name)
     };
 
-    // Rewrite image URLs to go through backend proxy (lain.bgm.tv blocked in some regions)
-    if let Some(ref mut info) = bangumi_info
-        && !info.image_url.is_empty()
-    {
-        let encoded = urlencoding(&info.image_url);
-        info.image_url = format!("/api/bangumi/image?url={encoded}");
-    }
-
     Ok(FeedPreview {
         suggested_name,
         suggested_season,
@@ -110,17 +102,4 @@ fn lookup_bangumi(name: &str) -> Option<crate::types::BangumiInfo> {
             None
         }
     }
-}
-
-fn urlencoding(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' | b':' => {
-                result.push(b as char);
-            }
-            _ => result.push_str(&format!("%{:02X}", b)),
-        }
-    }
-    result
 }

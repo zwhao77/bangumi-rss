@@ -23,11 +23,6 @@ enum AppResponse {
         body: String,
         content_type: &'static str,
     },
-    Image {
-        code: u16,
-        data: Vec<u8>,
-        content_type: String,
-    },
 }
 
 // ── Route table (matchit) ──
@@ -43,7 +38,6 @@ enum Route {
     Poll,             // POST /api/poll
     BangumiSubjects,  // GET /api/bangumi/subjects/{id}
     BangumiSearch,    // GET /api/bangumi/search
-    ImageProxy,       // GET /api/bangumi/image
 }
 
 fn build_router() -> Router<Route> {
@@ -60,7 +54,6 @@ fn build_router() -> Router<Route> {
         .unwrap();
     r.insert("/api/bangumi/search", Route::BangumiSearch)
         .unwrap();
-    r.insert("/api/bangumi/image", Route::ImageProxy).unwrap();
     r
 }
 
@@ -163,7 +156,6 @@ pub fn start(
                 handle_bangumi_subject(id)
             }
             (Some(Route::BangumiSearch), Method::Get) => handle_bangumi_search(&url),
-            (Some(Route::ImageProxy), Method::Get) => handle_image_proxy(&url),
 
             _ => AppResponse::Text {
                 code: 404,
@@ -182,7 +174,6 @@ fn respond(request: tiny_http::Request, resp: AppResponse, url: &str) {
     // Extract metadata before moving `resp`.
     let code = match &resp {
         AppResponse::Text { code, .. } => *code,
-        AppResponse::Image { code, .. } => *code,
     };
     let body_repr = match &resp {
         AppResponse::Text {
@@ -191,14 +182,8 @@ fn respond(request: tiny_http::Request, resp: AppResponse, url: &str) {
             format!("<HTML {} chars>", body.len())
         }
         AppResponse::Text { body, .. } => truncate(body, 500),
-        AppResponse::Image {
-            data, content_type, ..
-        } => {
-            format!("<image {} bytes, {content_type}>", data.len())
-        }
     };
 
-    // Move ownership of body/data — zero-copy.
     let result = match resp {
         AppResponse::Text {
             code,
@@ -210,25 +195,6 @@ fn respond(request: tiny_http::Request, resp: AppResponse, url: &str) {
                 Response::from_string(body)
                     .with_status_code(code)
                     .with_header(header),
-            )
-        }
-        AppResponse::Image {
-            code,
-            data,
-            content_type,
-        } => {
-            // content_type is pre-validated in the handler, unwrap is safe.
-            let header = format!("Content-Type: {content_type}")
-                .parse::<tiny_http::Header>()
-                .unwrap();
-            let cache = "Cache-Control: public, max-age=86400"
-                .parse::<tiny_http::Header>()
-                .unwrap();
-            request.respond(
-                Response::from_data(data)
-                    .with_status_code(code)
-                    .with_header(header)
-                    .with_header(cache),
             )
         }
     };
@@ -425,75 +391,6 @@ fn handle_poll(tx: &Sender<Event>) -> AppResponse {
     }
 }
 
-/// GET /api/bangumi/image?url=<encoded_url>
-fn handle_image_proxy(path: &str) -> AppResponse {
-    let query_str = path.split_once('?').map(|(_, q)| q).unwrap_or("");
-    let img_url = serde_urlencoded::from_str::<Vec<(String, String)>>(query_str)
-        .ok()
-        .and_then(|pairs| pairs.into_iter().find(|(k, _)| k == "url"))
-        .map(|(_, v)| v)
-        .unwrap_or_default();
-
-    if img_url.is_empty() {
-        return AppResponse::Image {
-            code: 400,
-            data: Vec::new(),
-            content_type: "text/plain".into(),
-        };
-    }
-
-    match ureq::get(&img_url)
-        .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
-        .call() {
-        Ok(resp) => {
-            let raw_ct = resp.content_type().to_string();
-            let ct = if format!("Content-Type: {raw_ct}")
-                .parse::<tiny_http::Header>()
-                .is_ok()
-            {
-                raw_ct
-            } else {
-                log::warn!("image proxy: invalid content-type '{raw_ct}', using octet-stream");
-                "application/octet-stream".into()
-            };
-            let mut buf = Vec::new();
-            if resp.into_reader().read_to_end(&mut buf).is_ok() {
-                return AppResponse::Image {
-                    code: 200,
-                    data: buf,
-                    content_type: ct,
-                };
-            }
-        }
-        Err(e) => log::warn!("image proxy failed for {img_url}: {e}"),
-    }
-    AppResponse::Image {
-        code: 404,
-        data: Vec::new(),
-        content_type: "text/plain".into(),
-    }
-}
-
-/// Rewrite raw Bangumi CDN URL to go through our image proxy.
-/// This ensures images work when the browser can't directly reach lain.bgm.tv.
-fn rewrite_image_url(mut info: BangumiInfo) -> BangumiInfo {
-    if !info.image_url.is_empty() {
-        let encoded: String = info
-            .image_url
-            .bytes()
-            .flat_map(|b| match b {
-                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                    vec![b as char]
-                }
-                b' ' => vec!['+'],
-                _ => format!("%{:02X}", b).chars().collect(),
-            })
-            .collect();
-        info.image_url = format!("/api/bangumi/image?url={encoded}");
-    }
-    info
-}
-
 /// GET /api/bangumi/subjects/{id}
 fn handle_bangumi_subject(id_str: &str) -> AppResponse {
     let id: u32 = match id_str.parse() {
@@ -510,7 +407,7 @@ fn handle_bangumi_subject(id_str: &str) -> AppResponse {
     match crate::services::bangumi::detail(id) {
         Ok(Some(info)) => AppResponse::Text {
             code: 200,
-            body: serde_json::json!({"success":true,"bangumi_info":rewrite_image_url(info)})
+            body: serde_json::json!({"success":true,"bangumi_info":info})
                 .to_string(),
             content_type: JSON_TYPE,
         },
@@ -549,7 +446,7 @@ fn handle_bangumi_search(url: &str) -> AppResponse {
             log::info!("Bangumi search '{name}' → #{id}");
             match crate::services::bangumi::detail(id) {
                 Ok(Some(info)) => {
-                    serde_json::json!({ "success": true, "bangumi_info": rewrite_image_url(info) })
+                    serde_json::json!({ "success": true, "bangumi_info": info })
                 }
                 Ok(None) => serde_json::json!({ "success": false, "message": "no detail" }),
                 Err(e) => serde_json::json!({ "success": false, "message": format!("{e}") }),
