@@ -9,7 +9,6 @@
 //!                        │
 //!                        └──→ event_tx (DownloadStarted, etc.)
 
-use std::io::Read;
 use std::sync::Arc;
 
 use crossbeam_channel::{Receiver, Sender};
@@ -30,6 +29,7 @@ pub struct EffectExecutor {
     pub downloader: Arc<dyn TorrentDownloader>,
     pub fs: Arc<dyn FileOps>,
     pub notifier: Arc<dyn Notifier>,
+    pub worker_pool: crate::utils::worker_pool::WorkerPool,
     pub event_tx: Sender<Event>,
     /// For self-call patterns: spawned threads feed effects back to this executor.
     pub effect_tx: Sender<Effect>,
@@ -117,35 +117,18 @@ impl EffectExecutor {
         let is_torrent = uri.ends_with(".torrent") || uri.contains(".torrent?");
 
         if is_torrent {
-            // Spawn a thread for HTTP download only — it does NOT touch the downloader.
-            // When done, it feeds AddTorrentBytes back via the effect channel.
-            let effect_tx = self.effect_tx.clone();
-            let uri = uri.to_string();
-            let dir = dir.to_string();
-
-            std::thread::spawn(move || {
-                match (|| -> anyhow::Result<Vec<u8>> {
-                    let resp = ureq::get(&uri).call()?;
-                    let mut bytes: Vec<u8> = Vec::new();
-                    resp.into_reader().read_to_end(&mut bytes)?;
-                    Ok(bytes)
-                })() {
-                    Ok(bytes) => {
-                        log::info!("torrent downloaded: {} bytes, feed={feed_id}", bytes.len());
-                        effect_tx
-                            .send(Effect::AddTorrentBytes {
-                                data: bytes,
-                                save_path: dir,
-                                feed_id,
-                                torrent_url: uri,
-                            })
-                            .ok();
-                    }
-                    Err(e) => {
-                        log::warn!("torrent download failed: {e}");
-                    }
-                }
-            });
+            if self
+                .worker_pool
+                .try_spawn(crate::utils::worker_pool::Job::DownloadTorrent {
+                    uri: uri.to_string(),
+                    save_path: dir.to_string(),
+                    feed_id,
+                    effect_tx: self.effect_tx.clone(),
+                })
+                .is_err()
+            {
+                log::warn!("torrent queue full, will retry on next RSS poll: {uri}");
+            }
             vec![]
         } else {
             match self.downloader.add_uri(uri, dir) {
@@ -388,6 +371,7 @@ mod tests {
             downloader: downloader.clone(),
             fs: fs.clone(),
             notifier,
+            worker_pool: crate::utils::worker_pool::WorkerPool::new(4),
             event_tx: event_tx.clone(),
             effect_tx: effect_tx.clone(),
         };

@@ -23,6 +23,7 @@ use services::EffectExecutor;
 use services::TimerManager;
 use services::persistence::load_state;
 use services::start_server;
+use utils::worker_pool::WorkerPool;
 
 const CHANNEL_CAPACITY: usize = 256;
 
@@ -133,6 +134,7 @@ fn main() -> anyhow::Result<()> {
         downloader,
         fs: fs_ops_for_executor,
         notifier,
+        worker_pool: WorkerPool::new(config.torrent_concurrency),
         event_tx: event_tx.clone(),
         effect_tx: effect_tx.clone(),
     };

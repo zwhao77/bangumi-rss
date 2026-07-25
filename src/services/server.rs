@@ -108,33 +108,10 @@ pub fn start(
 
     let router = build_router();
     let tx = Arc::new(event_tx);
-    let concurrency = Arc::new(std::sync::Mutex::new(max_concurrency));
-    let cv = Arc::new(std::sync::Condvar::new());
+    let semaphore = Arc::new(crate::utils::semaphore::Semaphore::new(max_concurrency));
 
     for mut request in server.incoming_requests() {
-        // Wait for a concurrency slot, then release on scope exit.
-        struct Permit {
-            slots: Arc<std::sync::Mutex<usize>>,
-            cv: Arc<std::sync::Condvar>,
-        }
-        impl Drop for Permit {
-            fn drop(&mut self) {
-                *self.slots.lock().unwrap() += 1;
-                self.cv.notify_one();
-            }
-        }
-
-        let mut slots = concurrency.lock().unwrap();
-        while *slots == 0 {
-            slots = cv.wait(slots).unwrap();
-        }
-        *slots -= 1;
-        drop(slots);
-        let _permit = Permit {
-            slots: concurrency.clone(),
-            cv: cv.clone(),
-        };
-
+        let _permit = semaphore.acquire().expect("server semaphore closed");
         let tx = tx.clone();
         let method = request.method().clone();
         let url = request.url().to_string();

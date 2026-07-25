@@ -99,7 +99,7 @@ fn reduce_rss_items_fetched(
     items: Vec<RssItem>,
     download_dir: &str,
 ) -> (AppState, Vec<Effect>) {
-    let mut new_state = state.clone();
+    let new_state = state.clone();
     let mut effects = Vec::new();
 
     for item in &items {
@@ -111,7 +111,6 @@ fn reduce_rss_items_fetched(
             log::debug!("skip batch: {}", &item.title[..item.title.len().min(80)]);
             continue;
         }
-        new_state = new_state.with_url_seen(&item.torrent_url);
         effects.push(Effect::AddTorrent {
             torrent_url: item.torrent_url.clone(),
             save_path: format!("{download_dir}/{feed_id}"),
@@ -152,7 +151,7 @@ fn reduce_download_started(
 
     let record = EpisodeRecord {
         infohash: infohash.clone(),
-        torrent_url,
+        torrent_url: torrent_url.clone(),
         feed_id,
         key: EpisodeKey {
             anime: feed.anime.clone(),
@@ -162,7 +161,10 @@ fn reduce_download_started(
         library_path: None,
     };
 
-    let new_state = state.clone().with_download_started(record);
+    let new_state = state
+        .clone()
+        .with_download_started(record)
+        .with_url_seen(&torrent_url);
     (new_state, vec![])
 }
 

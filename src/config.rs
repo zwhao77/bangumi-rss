@@ -47,6 +47,8 @@ pub struct Config {
     pub bangumi_api_base: String,
     #[envconfig(from = "MAX_CONCURRENCY", default = "8")]
     pub max_concurrency: usize,
+    #[envconfig(from = "TORRENT_CONCURRENCY", default = "4")]
+    pub torrent_concurrency: usize,
 }
 
 #[cfg(test)]
