@@ -86,6 +86,9 @@ pub enum Event {
     DownloadsRefreshed {
         snapshots: Vec<crate::types::DownloadSnapshot>,
     },
+
+    /// RSS fetch/parse failed for a feed.
+    RssFetchFailed { feed_id: Uuid, error: String },
 }
 
 #[derive(Debug)]

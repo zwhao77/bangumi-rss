@@ -57,6 +57,7 @@ pub fn reduce(state: &AppState, event: Event) -> (AppState, Vec<Effect>) {
         Event::ApiListDownloads { reply_tx } => reduce_api_list_downloads(state, reply_tx),
         Event::RefreshDownloads => reduce_refresh_downloads(state),
         Event::DownloadsRefreshed { snapshots } => reduce_downloads_refreshed(state, snapshots),
+        Event::RssFetchFailed { feed_id, error } => reduce_rss_fetch_failed(state, feed_id, error),
     }
 }
 
@@ -99,11 +100,11 @@ fn reduce_rss_items_fetched(
     items: Vec<RssItem>,
     download_dir: &str,
 ) -> (AppState, Vec<Effect>) {
-    let new_state = state.clone();
     let mut effects = Vec::new();
+    let total = items.len();
 
-    for item in &items {
-        if item.torrent_url.is_empty() || new_state.has_url(&item.torrent_url) {
+    for item in items {
+        if item.torrent_url.is_empty() || state.has_url(&item.torrent_url) {
             continue;
         }
         // Reject batch torrents (e.g. "01-12").
@@ -112,7 +113,7 @@ fn reduce_rss_items_fetched(
             continue;
         }
         effects.push(Effect::AddTorrent {
-            torrent_url: item.torrent_url.clone(),
+            torrent_url: item.torrent_url,
             save_path: format!("{download_dir}/{feed_id}"),
             feed_id,
         });
@@ -121,11 +122,11 @@ fn reduce_rss_items_fetched(
     if effects.is_empty() {
         log::debug!(
             "RssItemsFetched: all {} items already seen for feed={feed_id}",
-            items.len()
+            total
         );
     }
 
-    (new_state, effects)
+    (state.clone(), effects)
 }
 
 /// Periodic download poll → emit poll effects.
@@ -151,7 +152,7 @@ fn reduce_download_started(
 
     let record = EpisodeRecord {
         infohash: infohash.clone(),
-        torrent_url: torrent_url.clone(),
+        torrent_url,
         feed_id,
         key: EpisodeKey {
             anime: feed.anime.clone(),
@@ -161,10 +162,7 @@ fn reduce_download_started(
         library_path: None,
     };
 
-    let new_state = state
-        .clone()
-        .with_download_started(record)
-        .with_url_seen(&torrent_url);
+    let new_state = state.clone().with_download_started(record);
     (new_state, vec![])
 }
 
@@ -348,6 +346,16 @@ fn reduce_api_list_downloads(
 /// Trigger a downloader refresh.
 fn reduce_refresh_downloads(state: &AppState) -> (AppState, Vec<Effect>) {
     (state.clone(), vec![Effect::QueryAllDownloads])
+}
+
+/// RSS fetch/parse failed — log and return unchanged state.
+fn reduce_rss_fetch_failed(
+    state: &AppState,
+    feed_id: Uuid,
+    error: String,
+) -> (AppState, Vec<Effect>) {
+    log::warn!("RSS fetch failed for feed={feed_id}: {error}");
+    (state.clone(), vec![])
 }
 
 /// Executor sent back fresh snapshots — fill feed context from tracker.
@@ -584,5 +592,17 @@ mod tests {
         // New feed should be included in RSS tick.
         let effects = reduce_rss_tick_all(&state2);
         assert_eq!(effects.len(), 1);
+    }
+
+    #[test]
+    fn rss_fetch_failed_returns_unchanged_state() {
+        let state = empty_state();
+        let (new_state, effects) = reduce_rss_fetch_failed(
+            &state,
+            uuid::Uuid::new_v4(),
+            "connection timeout".into(),
+        );
+        assert!(effects.is_empty());
+        assert_eq!(new_state, state);
     }
 }

@@ -42,6 +42,7 @@ impl QbittorrentDownloader {
         let resp = ureq::post(&format!("{}/api/v2/auth/login", self.api_url))
             .set("Content-Type", "application/x-www-form-urlencoded")
             .set("Referer", &self.api_url)
+            .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
             .send_string(&body)
             .ok()?;
 
@@ -70,6 +71,7 @@ impl QbittorrentDownloader {
         let url = format!("{}/api/v2/{}", self.api_url, path);
         let resp = ureq::get(&url)
             .set("Cookie", &format!("SID={}", sid))
+            .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
             .call()
             .ok()?;
 
@@ -78,6 +80,7 @@ impl QbittorrentDownloader {
             let sid = self.login()?;
             let resp = ureq::get(&url)
                 .set("Cookie", &format!("SID={}", sid))
+                .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
                 .call()
                 .ok()?;
             return resp.into_json().ok();
@@ -98,6 +101,7 @@ impl QbittorrentDownloader {
         let resp = ureq::post(&url)
             .set("Cookie", &format!("SID={}", sid))
             .set("Content-Type", "application/x-www-form-urlencoded")
+            .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
             .send_string(&body)
             .ok()?;
 
@@ -106,6 +110,7 @@ impl QbittorrentDownloader {
             let resp = ureq::post(&url)
                 .set("Cookie", &format!("SID={}", sid))
                 .set("Content-Type", "application/x-www-form-urlencoded")
+                .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
                 .send_string(&body)
                 .ok()?;
             return resp.into_json().ok();
@@ -161,6 +166,7 @@ impl QbittorrentDownloader {
         let resp = ureq::post(&url)
             .set("Cookie", &format!("SID={}", sid))
             .set("Content-Type", &ct)
+            .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
             .send_bytes(&body)?;
 
         if resp.status() == 403 {
@@ -171,6 +177,7 @@ impl QbittorrentDownloader {
             let resp = ureq::post(&url)
                 .set("Cookie", &format!("SID={}", sid))
                 .set("Content-Type", &ct)
+                .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
                 .send_bytes(&body)?;
             if resp.status() != 200 {
                 anyhow::bail!(

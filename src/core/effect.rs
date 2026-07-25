@@ -6,7 +6,7 @@
 use std::fmt;
 use uuid::Uuid;
 
-use crate::types::AnimeIdentity;
+use crate::types::{AnimeIdentity, RssItem};
 
 /// An effect to be executed by the service layer.
 pub enum Effect {
@@ -54,6 +54,19 @@ pub enum Effect {
 
     /// Poll the downloader for recently failed tasks.
     PollFailed,
+
+    /// Worker pool fetched and parsed RSS items.
+    RssFetchComplete {
+        feed_id: Uuid,
+        items: Vec<RssItem>,
+        download_dir: String,
+    },
+
+    /// Worker pool failed to fetch/parse RSS.
+    RssFetchFailed {
+        feed_id: Uuid,
+        error: String,
+    },
 }
 
 impl fmt::Debug for Effect {
@@ -115,6 +128,21 @@ impl fmt::Debug for Effect {
             Self::QueryAllDownloads => f.debug_struct("QueryAllDownloads").finish(),
             Self::PollCompleted => f.debug_struct("PollCompleted").finish(),
             Self::PollFailed => f.debug_struct("PollFailed").finish(),
+            Self::RssFetchComplete {
+                feed_id,
+                items,
+                download_dir,
+            } => f
+                .debug_struct("RssFetchComplete")
+                .field("num_items", &items.len())
+                .field("feed_id", feed_id)
+                .field("download_dir", download_dir)
+                .finish(),
+            Self::RssFetchFailed { feed_id, error } => f
+                .debug_struct("RssFetchFailed")
+                .field("feed_id", feed_id)
+                .field("error", error)
+                .finish(),
         }
     }
 }

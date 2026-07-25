@@ -442,7 +442,9 @@ fn handle_image_proxy(path: &str) -> AppResponse {
         };
     }
 
-    match ureq::get(&img_url).call() {
+    match ureq::get(&img_url)
+        .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
+        .call() {
         Ok(resp) => {
             let raw_ct = resp.content_type().to_string();
             let ct = if format!("Content-Type: {raw_ct}")

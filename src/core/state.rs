@@ -75,8 +75,10 @@ impl AppState {
         self
     }
 
-    /// Record that a download has started — insert or update tracker entry.
+    /// Record that a download has started — insert or update tracker entry
+    /// and mark the torrent URL as seen.
     pub fn with_download_started(mut self, record: EpisodeRecord) -> Self {
+        self.seen_urls.insert(record.torrent_url.clone());
         self.tracker.insert(record.infohash.clone(), record);
         self
     }
@@ -108,12 +110,6 @@ impl AppState {
     pub fn with_feed_removed(mut self, id: Uuid) -> Self {
         self.feeds.remove(&id);
         self.tracker.retain(|_, r| r.feed_id != id);
-        self
-    }
-
-    /// Mark a torrent URL as already submitted — idempotent.
-    pub fn with_url_seen(mut self, url: &str) -> Self {
-        self.seen_urls.insert(url.to_string());
         self
     }
 

@@ -30,7 +30,9 @@ impl Aria2Downloader {
             "method": format!("aria2.{method}"),
             "params": params,
         });
-        let resp = ureq::post(&self.rpc_url).send_json(payload).ok()?;
+        let resp = ureq::post(&self.rpc_url)
+            .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
+            .send_json(payload).ok()?;
         let body: serde_json::Value = resp.into_json().ok()?;
         if body.get("error").is_some() {
             return None;

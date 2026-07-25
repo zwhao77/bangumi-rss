@@ -1,32 +1,14 @@
-//! RSS feed fetcher — uses the `rss` crate for robust XML parsing.
+//! RSS feed fetcher — preview helper (full parsing is in `utils::rss::parse_rss`).
 
-use crate::traits::RssFetcher;
-use crate::types::{RssItem, RssPreview};
+use crate::types::RssPreview;
 
 /// Concrete RSS client backed by `ureq` + `rss`.
 pub struct RssClient;
 
-impl RssFetcher for RssClient {
-    fn fetch(&self, url: &str) -> anyhow::Result<Vec<RssItem>> {
-        let body = ureq::get(url).call()?.into_string()?;
-        let channel = body.parse::<rss::Channel>()?;
-        let mut items = Vec::new();
-
-        for item in channel.items() {
-            let title = item.title().unwrap_or("").to_string();
-            let torrent_url = item
-                .enclosure()
-                .map(|e| e.url().to_string())
-                .unwrap_or_default();
-
-            if !title.is_empty() && !torrent_url.is_empty() {
-                items.push(RssItem { title, torrent_url });
-            }
-        }
-        Ok(items)
-    }
-
-    fn fetch_preview(&self, url: &str) -> anyhow::Result<RssPreview> {
+impl RssClient {
+    /// Fetch RSS preview (channel title + up to 5 item titles).
+    /// Used by the server for feed confirmation UI.
+    pub fn fetch_preview(&self, url: &str) -> anyhow::Result<RssPreview> {
         let body = ureq::get(url).call()?.into_string()?;
         let channel = body.parse::<rss::Channel>()?;
         let channel_title = channel.title().to_string();
@@ -51,23 +33,9 @@ mod tests {
 
     #[test]
     #[ignore = "requires network access to mikanani"]
-    fn test_mikan_real_rss() {
+    fn test_mikan_real_preview() {
         let url = "https://mikanani.kas.pub/RSS/Bangumi?bangumiId=4008&subgroupid=583";
         let client = RssClient;
-
-        // Test fetch (full items with torrent URLs).
-        let items = client.fetch(url).expect("fetch failed");
-        assert!(!items.is_empty(), "should have RSS items");
-        for item in &items {
-            assert!(!item.title.is_empty(), "title should not be empty");
-            assert!(
-                item.torrent_url.starts_with("https://") || item.torrent_url.starts_with("magnet:"),
-                "unexpected torrent URL: {}",
-                item.torrent_url
-            );
-        }
-        println!("fetched {} items", items.len());
-        println!("first: {}", items[0].title);
 
         // Test preview.
         let preview = client.fetch_preview(url).expect("preview failed");

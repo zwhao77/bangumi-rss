@@ -5,15 +5,9 @@
 
 use std::path::Path;
 
-use crate::types::{CompletedDownload, RssItem, RssPreview, TorrentFile};
+use crate::types::{CompletedDownload, TorrentFile};
 
 // ── Service traits ──
-
-/// Fetches and parses an RSS feed into a list of torrent items.
-pub trait RssFetcher: Send + Sync {
-    fn fetch(&self, url: &str) -> anyhow::Result<Vec<RssItem>>;
-    fn fetch_preview(&self, url: &str) -> anyhow::Result<RssPreview>;
-}
 
 /// Manages torrent downloads (add, list, rename, poll completion).
 pub trait TorrentDownloader: Send + Sync {

@@ -4,9 +4,8 @@
 //! synchronous helpers.  They are **not** behind traits — no mock needed;
 //! each sub-component has its own unit tests.
 
-use crate::services::RssClient;
-use crate::traits::RssFetcher;
 use crate::types::FeedPreview;
+use crate::utils::rss;
 use crate::utils::tokenizer;
 
 /// Fetch RSS preview + Bangumi metadata from a feed URL.
@@ -15,7 +14,11 @@ use crate::utils::tokenizer;
 ///   1. Tokenize all item titles → first successful name + season
 ///   2. Fallback: raw first item title
 pub fn fetch_feed_preview(url: &str) -> anyhow::Result<FeedPreview> {
-    let rss = RssClient.fetch_preview(url)?;
+    let body = ureq::get(url)
+        .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
+        .call()?
+        .into_string()?;
+    let rss = rss::parse_preview(&body)?;
 
     // ── Step 1: tokenize item titles ──
     let mut suggested_name = String::new();

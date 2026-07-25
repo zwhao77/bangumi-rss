@@ -49,7 +49,12 @@ pub struct Config {
     pub max_concurrency: usize,
     #[envconfig(from = "TORRENT_CONCURRENCY", default = "4")]
     pub torrent_concurrency: usize,
+    #[envconfig(from = "QUEUE_CAPACITY", default = "512")]
+    pub queue_capacity: usize,
 }
+
+/// Default HTTP timeout for all outbound requests (RSS, torrent, Aria2 RPC, etc.).
+pub const HTTP_TIMEOUT_SECS: u64 = 10;
 
 #[cfg(test)]
 mod tests {

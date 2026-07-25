@@ -6,10 +6,8 @@
 
 use std::sync::Mutex;
 
-use crate::traits::{RssFetcher, TorrentDownloader};
-use crate::types::{
-    CompletedDownload, DownloadSnapshot, DownloadState, RssItem, RssPreview, TorrentFile,
-};
+use crate::traits::TorrentDownloader;
+use crate::types::{CompletedDownload, DownloadSnapshot, DownloadState, TorrentFile};
 
 // ── Mock downloader ──
 
@@ -136,36 +134,6 @@ impl TorrentDownloader for MockDownloader {
                 }
             })
             .collect())
-    }
-}
-
-// ── Mock RSS fetcher ──
-
-/// Fake RSS client — returns a canned response for testing.
-pub struct MockRssClient;
-
-impl RssFetcher for MockRssClient {
-    fn fetch(&self, url: &str) -> anyhow::Result<Vec<RssItem>> {
-        log::debug!("[mock-rss] fetch: {url}");
-        Ok(vec![RssItem {
-            title: "[MockSubs] 葬送的芙莉莲 第二季 - 38 [1080p]".into(),
-            torrent_url: format!(
-                "https://mock.example/{}/ep38.torrent",
-                url.replace('/', "_")
-            ),
-        }])
-    }
-
-    fn fetch_preview(&self, url: &str) -> anyhow::Result<RssPreview> {
-        log::debug!("[mock-rss] preview: {url}");
-        Ok(RssPreview {
-            channel_title: "葬送的芙莉莲".into(),
-            item_titles: vec![
-                "[MockSubs] 葬送的芙莉莲 第二季 - 38 [1080p]".into(),
-                "[MockSubs] 葬送的芙莉莲 第二季 - 37 [1080p]".into(),
-                "[MockSubs] 葬送的芙莉莲 第二季 - 36 [1080p]".into(),
-            ],
-        })
     }
 }
 

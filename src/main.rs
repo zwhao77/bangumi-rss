@@ -65,12 +65,6 @@ fn main() -> anyhow::Result<()> {
     state.library_dir = config.library_dir;
 
     // ── services (trait objects behind Arc) ──
-    let rss_client: Arc<dyn crate::traits::RssFetcher> = if config.mock_downloader {
-        Arc::new(services::MockRssClient)
-    } else {
-        Arc::new(services::RssClient)
-    };
-
     let downloader: Arc<dyn crate::traits::TorrentDownloader> = if config.mock_downloader {
         Arc::new(services::MockDownloader::new())
     } else if matches!(config.downloader, Downloader::Qbittorrent) {
@@ -130,11 +124,10 @@ fn main() -> anyhow::Result<()> {
 
     // ── effect executor (consumes effects, may publish DownloadStarted events) ──
     let executor = EffectExecutor {
-        rss: rss_client,
         downloader,
         fs: fs_ops_for_executor,
         notifier,
-        worker_pool: WorkerPool::new(config.torrent_concurrency),
+        worker_pool: WorkerPool::new(config.torrent_concurrency, config.queue_capacity),
         event_tx: event_tx.clone(),
         effect_tx: effect_tx.clone(),
     };

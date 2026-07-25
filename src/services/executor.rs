@@ -2,12 +2,6 @@
 //!
 //! Receives `Effect` values from the logic layer and executes them
 //! by delegating to injected service trait objects.
-//!
-//! ┌──────────┐     ┌───────────────┐     ┌──────────────────┐
-//! │  logic   │ ──→ │ EffectExecutor│ ──→ │ traits::RssFetcher│ ... │
-//! └──────────┘     └───────────────┘     └──────────────────┘
-//!                        │
-//!                        └──→ event_tx (DownloadStarted, etc.)
 
 use std::sync::Arc;
 
@@ -16,7 +10,7 @@ use uuid::Uuid;
 
 use crate::core::effect::Effect;
 use crate::core::event::Event;
-use crate::traits::{FileOps, Notifier, RssFetcher, TorrentDownloader};
+use crate::traits::{FileOps, Notifier, TorrentDownloader};
 use crate::types::AnimeIdentity;
 
 /// Executes effects by delegating to service trait objects.
@@ -25,7 +19,6 @@ use crate::types::AnimeIdentity;
 /// Produces follow-up effects (fed back into `effect_tx`) and
 /// feedback events (sent to `event_tx`, e.g. `DownloadStarted`).
 pub struct EffectExecutor {
-    pub rss: Arc<dyn RssFetcher>,
     pub downloader: Arc<dyn TorrentDownloader>,
     pub fs: Arc<dyn FileOps>,
     pub notifier: Arc<dyn Notifier>,
@@ -82,6 +75,17 @@ impl EffectExecutor {
             } => self.do_add_torrent_bytes(&data, &save_path, feed_id, &torrent_url),
             Effect::Notify { title, body } => self.do_notify(&title, &body),
             Effect::QueryAllDownloads => self.do_query_all(),
+            Effect::RssFetchComplete {
+                feed_id,
+                items,
+                download_dir,
+            } => self.do_rss_fetch_complete(feed_id, items, &download_dir),
+            Effect::RssFetchFailed { feed_id, error } => {
+                self.event_tx
+                    .send(Event::RssFetchFailed { feed_id, error })
+                    .ok();
+                vec![]
+            }
             Effect::PollCompleted => self.do_poll_completed(),
             Effect::PollFailed => self.do_poll_failed(),
         }
@@ -94,23 +98,33 @@ impl EffectExecutor {
             log::warn!("skip fetch: download_dir is empty for feed={feed_id}");
             return vec![];
         }
-        match self.rss.fetch(url) {
-            Ok(items) => {
-                // Send items to logic for URL dedup, which will produce AddTorrent effects.
-                self.event_tx
-                    .send(Event::RssItemsFetched {
-                        feed_id,
-                        items,
-                        download_dir: download_dir.to_string(),
-                    })
-                    .ok();
-                vec![]
-            }
-            Err(e) => {
-                log::warn!("RSS fetch failed for {url}: {e}");
-                vec![]
-            }
-        }
+        self.worker_pool
+            .try_spawn(crate::utils::worker_pool::Job::FetchRss {
+                url: url.to_string(),
+                feed_id,
+                download_dir: download_dir.to_string(),
+                effect_tx: self.effect_tx.clone(),
+            })
+            .unwrap_or_else(|_| {
+                log::warn!("RSS queue full, skip feed={feed_id}");
+            });
+        vec![]
+    }
+
+    fn do_rss_fetch_complete(
+        &self,
+        feed_id: Uuid,
+        items: Vec<crate::types::RssItem>,
+        download_dir: &str,
+    ) -> Vec<Effect> {
+        self.event_tx
+            .send(Event::RssItemsFetched {
+                feed_id,
+                items,
+                download_dir: download_dir.to_string(),
+            })
+            .ok();
+        vec![]
     }
 
     fn do_add_torrent(&self, uri: &str, dir: &str, feed_id: Uuid) -> Vec<Effect> {
@@ -354,7 +368,6 @@ mod tests {
         let downloader = Arc::new(MockDownloader::new());
         let fs = Arc::new(MockFileSystem::new());
         let notifier = Arc::new(NoopNotifier);
-        let rss: Arc<dyn RssFetcher> = Arc::new(crate::services::MockRssClient);
 
         // Register a file that "exists" on disk so move succeeds.
         let infohash = downloader.add_uri("test.torrent", "/dl/test-feed").unwrap();
@@ -367,11 +380,10 @@ mod tests {
         fs.existing.lock().unwrap().insert(src);
 
         let executor = EffectExecutor {
-            rss,
             downloader: downloader.clone(),
             fs: fs.clone(),
             notifier,
-            worker_pool: crate::utils::worker_pool::WorkerPool::new(4),
+            worker_pool: crate::utils::worker_pool::WorkerPool::new(4, 512),
             event_tx: event_tx.clone(),
             effect_tx: effect_tx.clone(),
         };
