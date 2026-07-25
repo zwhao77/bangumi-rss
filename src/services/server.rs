@@ -245,6 +245,19 @@ fn try_bind(port: u16) -> Option<tiny_http::Server> {
 
 // ── Route handlers ──
 
+/// Validate that a string looks like a usable RSS feed URL.
+fn is_valid_rss_url(url: &str) -> bool {
+    if url.is_empty() || url.len() > 2048 {
+        return false;
+    }
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return false;
+    }
+    // Must have at least a basic domain start after scheme.
+    let after_scheme = &url[url.find("://").unwrap_or(usize::MAX) + 3..];
+    after_scheme.starts_with(|c: char| c.is_alphanumeric())
+}
+
 fn handle_index(fs: &dyn FileOps) -> AppResponse {
     AppResponse::Text {
         code: 200,
@@ -263,6 +276,13 @@ fn handle_style_css(fs: &dyn FileOps) -> AppResponse {
 
 fn handle_preview(body: &str) -> AppResponse {
     let url = body.trim();
+    if !is_valid_rss_url(url) {
+        return AppResponse::Text {
+            code: 400,
+            body: r#"{"success":false,"message":"invalid URL"}"#.into(),
+            content_type: JSON_TYPE,
+        };
+    }
     let preview = preview::fetch_feed_preview(url).unwrap_or_default();
     let json = serde_json::to_string(&preview).unwrap_or_default();
     AppResponse::Text {
@@ -276,6 +296,13 @@ fn handle_preview(body: &str) -> AppResponse {
 fn handle_feed_create(body: &str, tx: &Sender<Event>) -> AppResponse {
     let confirm: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
     let url = confirm["url"].as_str().unwrap_or("").to_string();
+    if !is_valid_rss_url(&url) {
+        return AppResponse::Text {
+            code: 400,
+            body: r#"{"success":false,"message":"invalid URL"}"#.into(),
+            content_type: JSON_TYPE,
+        };
+    }
     let name = confirm["name"].as_str().unwrap_or("").to_string();
     let season = confirm["season"].as_u64().unwrap_or(1) as u8;
     let bangumi_info: Option<BangumiInfo> = confirm
