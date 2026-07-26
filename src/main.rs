@@ -21,9 +21,9 @@ use crate::core::effect::Effect;
 use crate::core::event::Event;
 use services::EffectExecutor;
 use services::TimerManager;
+use services::fetch_pool::FetchPool;
 use services::persistence::load_state;
 use services::start_server;
-use services::fetch_pool::FetchPool;
 
 const CHANNEL_CAPACITY: usize = 256;
 

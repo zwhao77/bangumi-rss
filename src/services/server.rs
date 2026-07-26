@@ -52,7 +52,6 @@ enum Route {
     BangumiSubjects,  // GET /api/bangumi/subjects/{id}
     BangumiSearch,    // GET /api/bangumi/search
     Health,           // GET /api/health
-    Slow,             // GET /api/slow  (benchmark: sleeps 2s)
 }
 
 fn build_router() -> Router<Route> {
@@ -77,8 +76,6 @@ fn build_router() -> Router<Route> {
         .expect("route: /api/poll");
     r.insert("/api/health", Route::Health)
         .expect("route: /api/health");
-    r.insert("/api/slow", Route::Slow)
-        .expect("route: /api/slow");
     r
 }
 
@@ -109,13 +106,14 @@ pub fn start(
     fs: Arc<dyn FileOps>,
     cfg: ServerConfig,
 ) {
-    let server = try_bind(&cfg.bind_addr, cfg.port, cfg.max_connections, cfg.max_queue).unwrap_or_else(|| {
-        log::info!("port {} unavailable, trying OS-assigned", cfg.port);
-        try_bind(&cfg.bind_addr, 0, cfg.max_connections, cfg.max_queue).unwrap_or_else(|| {
-            log::error!("fatal: failed to bind any port");
-            std::process::exit(1);
-        })
-    });
+    let server = try_bind(&cfg.bind_addr, cfg.port, cfg.max_connections, cfg.max_queue)
+        .unwrap_or_else(|| {
+            log::info!("port {} unavailable, trying OS-assigned", cfg.port);
+            try_bind(&cfg.bind_addr, 0, cfg.max_connections, cfg.max_queue).unwrap_or_else(|| {
+                log::error!("fatal: failed to bind any port");
+                std::process::exit(1);
+            })
+        });
 
     let actual_port = server
         .server_addr()
@@ -220,7 +218,6 @@ pub fn start(
             }
             (Some(Route::BangumiSearch), Method::Get) => handle_bangumi_search(&url),
             (Some(Route::Health), Method::Get) => handle_health(&*dl),
-            (Some(Route::Slow), Method::Get) => handle_slow(),
 
             _ => AppResponse::Text {
                 code: 404,
@@ -282,7 +279,11 @@ fn try_bind(bind_addr: &str, port: u16, backlog: u32, max_queue: u32) -> Option<
     socket.bind(&addr.into()).ok()?;
     socket.listen(backlog as i32).ok()?;
     let listener: std::net::TcpListener = socket.into();
-    let queue = if max_queue > 0 { Some(max_queue as usize) } else { None };
+    let queue = if max_queue > 0 {
+        Some(max_queue as usize)
+    } else {
+        None
+    };
     tiny_http::Server::from_listener(
         listener,
         None::<tiny_http::SslConfig>,
@@ -591,15 +592,6 @@ fn handle_health(dl: &dyn TorrentDownloader) -> AppResponse {
                     .to_string(),
             content_type: JSON_TYPE,
         },
-    }
-}
-
-fn handle_slow() -> AppResponse {
-    std::thread::sleep(std::time::Duration::from_secs(2));
-    AppResponse::Text {
-        code: 200,
-        body: r#"{"success":true,"slow":"ok"}"#.into(),
-        content_type: JSON_TYPE,
     }
 }
 

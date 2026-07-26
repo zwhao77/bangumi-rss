@@ -264,7 +264,7 @@ mod tests {
         // Should have settled back to at most MIN_THREADS.
         assert!(
             active <= MIN_THREADS,
-            "idle threads should clean up, got {active}, expected <= {MIN_THREADS}"
+            "idle threads did not clean up"
         );
     }
 
