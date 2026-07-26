@@ -1,11 +1,10 @@
-//! RSS fetch service — I/O boundary for RSS/HTTP operations.
+//! Fetch service — I/O boundary for outbound HTTP requests.
 //!
 //! Provides two public interfaces that combine HTTP fetch with pure parsing:
-//! - [`fetch_items`] — fetch + parse into `Vec<RssItem>` (for background polling)
-//! - [`fetch_preview`] — fetch + parse into `RssPreview` (for feed confirmation UI)
+//! - [`fetch_items`] — fetch + parse RSS into `Vec<RssItem>` (for background polling)
+//! - [`fetch_preview`] — fetch + parse RSS into `RssPreview` (for feed confirmation UI)
 //!
-//! The underlying HTTP fetch is a private implementation detail;
-//! callers should not need to deal with raw bytes.
+//! Also exposes the underlying generic [`fetch_bytes`] for crate-internal use.
 
 use std::io::Read;
 
@@ -40,13 +39,10 @@ pub(crate) fn fetch_bytes(url: &str, timeout: std::time::Duration, max: u64) -> 
 
 // ── RSS helpers ──
 
-fn http_timeout() -> std::time::Duration {
-    std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS)
-}
-
 /// Fetch RSS body with timeout and 1 MB size limit.
 fn fetch_rss_body(url: &str) -> anyhow::Result<String> {
     const MAX: u64 = 1_048_576;
-    let bytes = fetch_bytes(url, http_timeout(), MAX)?;
+    let timeout = std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS);
+    let bytes = fetch_bytes(url, timeout, MAX)?;
     Ok(String::from_utf8(bytes)?)
 }

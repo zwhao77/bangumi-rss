@@ -176,8 +176,8 @@ mod tests {
     #[test]
     fn test_url_encode() {
         assert_eq!(
-            url_encode("葬送的芙莉莲"),
-            "%E8%91%AC%E9%80%81%E7%9A%84%E8%8A%99%E8%8E%89%E8%8E%B2"
+            url_encode("测试动画"),
+            "%E6%B5%8B%E8%AF%95%E5%8A%A8%E7%94%BB"
         );
         assert_eq!(url_encode("hello world"), "hello+world");
         assert_eq!(url_encode("abc-123"), "abc-123");

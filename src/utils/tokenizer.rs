@@ -159,76 +159,76 @@ mod tests {
     // ── Tests ──
 
     #[test]
-    fn test_mikan_style() {
+    fn test_cn_season_style() {
         let p = parse_torrent_title(
-            "[绿茶字幕组] 葬送的芙莉莲 第二季 / Sousou no Frieren S2 [38][WebRip][1080p]",
+            "[测试组] 虚构动画 第二季 / Fiction Anime S2 [01][WebRip][1080p]",
         )
         .unwrap();
-        assert_eq!(p.group.as_deref(), Some("绿茶字幕组"));
-        assert!(p.name.unwrap().contains("葬送的芙莉莲"));
+        assert_eq!(p.group.as_deref(), Some("测试组"));
+        assert!(p.name.unwrap().contains("虚构动画"));
         assert_eq!(p.season, Some(2));
     }
 
     #[test]
     fn test_subsplease_style() {
-        let p = parse_torrent_title("[SubsPlease] Oshi no Ko - 01 (1080p) [AAC].mkv").unwrap();
-        assert_eq!(p.group.as_deref(), Some("SubsPlease"));
+        let p = parse_torrent_title("[SUB-Group] 虚构アニメ - 01 (1080p) [AAC].mkv").unwrap();
+        assert_eq!(p.group.as_deref(), Some("SUB-Group"));
         assert_eq!(p.episode, Some(1.0));
     }
 
     #[test]
     fn test_name_without_episode_suffix() {
         let p = parse_torrent_title(
-            "[ANi] 花织即使是转生也想打架 - 02 [1080P][Baha][WEB-DL][AAC AVC][CHT][MP4]",
+            "[字幕·组] 虚构のアニメ - 02 [1080P][Baha][WEB-DL][AAC AVC][CHT][MP4]",
         )
         .unwrap();
-        assert_eq!(p.group.as_deref(), Some("ANi"));
-        assert_eq!(p.name.as_deref(), Some("花织即使是转生也想打架"));
+        assert_eq!(p.group.as_deref(), Some("字幕·组"));
+        assert_eq!(p.name.as_deref(), Some("虚构のアニメ"));
         assert_eq!(p.episode, Some(2.0));
     }
 
     #[test]
-    fn test_mikan_fullwidth_group() {
+    fn test_fullwidth_group() {
         let p = parse_torrent_title(
-            "【喵萌奶茶屋】★07月新番★[相反的你和我 / Seihantai na Kimi to Boku][13][1080p][繁日双语]",
+            "【架空组】★07月新番★[非現実アニメ / Fiction Anime][01][1080p][繁日双语]",
         )
         .unwrap();
-        assert_eq!(p.group.as_deref(), Some("喵萌奶茶屋"));
-        assert!(p.name.as_deref().unwrap().contains("相反的你和我"));
+        assert_eq!(p.group.as_deref(), Some("架空组"));
+        assert!(p.name.as_deref().unwrap().contains("非現実アニメ"));
     }
 
     #[test]
     fn test_extract_title() {
         assert_eq!(
-            extract_title("[ANi] 花织即使是转生也想打架 - 02 [1080P][MP4]").as_deref(),
-            Some("花织即使是转生也想打架")
+            extract_title("[字幕·组] 虚构のアニメ - 02 [1080P][MP4]").as_deref(),
+            Some("虚构のアニメ")
         );
         assert_eq!(
-            extract_title("[SubsPlease] Oshi no Ko - 01 (1080p)").as_deref(),
-            Some("Oshi no Ko")
+            extract_title("[SUB-Group] Fiction Anime - 01 (1080p)").as_deref(),
+            Some("Fiction Anime")
         );
     }
 
     #[test]
     fn test_extract_group() {
         assert_eq!(
-            extract_group("[ANi] 花织即使是转生也想打架 - 02 [1080P]").as_deref(),
-            Some("ANi")
+            extract_group("[字幕·组] 虚构のアニメ - 02 [1080P]").as_deref(),
+            Some("字幕·组")
         );
         assert_eq!(
-            extract_group("[SubsPlease] Oshi no Ko - 01 (1080p)").as_deref(),
-            Some("SubsPlease")
+            extract_group("[SUB-Group] Fiction Anime - 01 (1080p)").as_deref(),
+            Some("SUB-Group")
         );
     }
 
     #[test]
     fn test_extract_episode() {
         assert_eq!(
-            extract_episode("[ANi] 花织即使是转生也想打架 - 02 [1080P]"),
+            extract_episode("[字幕·组] 虚构のアニメ - 02 [1080P]"),
             Some(2.0)
         );
         assert_eq!(
-            extract_episode("[SubsPlease] Oshi no Ko - 01 (1080p)"),
+            extract_episode("[SUB-Group] Fiction Anime - 01 (1080p)"),
             Some(1.0)
         );
     }
@@ -236,7 +236,7 @@ mod tests {
     #[test]
     fn test_extract_season() {
         let p = parse_torrent_title(
-            "[绿茶字幕组] 葬送的芙莉莲 第二季 / Sousou no Frieren S2 [38][WebRip]",
+            "[测试组] 虚构アニメ S2 / Fiction Anime S2 [01][WebRip]",
         )
         .unwrap();
         assert_eq!(p.season, Some(2));

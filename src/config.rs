@@ -47,8 +47,6 @@ pub struct Config {
     pub qbittorrent_pass: String,
     #[envconfig(from = "BANGUMI_API_BASE", default = "https://api.bgm.tv")]
     pub bangumi_api_base: String,
-    #[envconfig(from = "MAX_CONCURRENCY", default = "8")]
-    pub max_concurrency: usize,
     #[envconfig(from = "TORRENT_CONCURRENCY", default = "4")]
     pub torrent_concurrency: usize,
     #[envconfig(from = "QUEUE_CAPACITY", default = "512")]
@@ -59,6 +57,8 @@ pub struct Config {
     pub auth_password: String,
     #[envconfig(from = "BIND_ADDR", default = "127.0.0.1")]
     pub bind_addr: String,
+    #[envconfig(from = "MAX_CONNECTIONS", default = "128")]
+    pub max_connections: u32,
 }
 
 /// Default HTTP timeout for all outbound requests (RSS, torrent, Aria2 RPC, etc.).

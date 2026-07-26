@@ -8,6 +8,4 @@
 pub mod handler;
 pub mod preview;
 pub mod rss;
-pub mod semaphore;
 pub mod tokenizer;
-pub mod worker_pool;

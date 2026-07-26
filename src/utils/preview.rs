@@ -4,8 +4,8 @@
 //! synchronous helpers.  They are **not** behind traits — no mock needed;
 //! each sub-component has its own unit tests.
 
+use crate::services::fetch as rss;
 use crate::types::FeedPreview;
-use crate::utils::rss;
 use crate::utils::tokenizer;
 
 /// Fetch RSS preview + Bangumi metadata from a feed URL.
@@ -14,8 +14,7 @@ use crate::utils::tokenizer;
 ///   1. Tokenize all item titles → first successful name + season
 ///   2. Fallback: raw first item title
 pub fn fetch_feed_preview(url: &str) -> anyhow::Result<FeedPreview> {
-    let body = rss::fetch_rss_body(url)?;
-    let rss = rss::parse_preview(&body)?;
+    let preview = rss::fetch_preview(url)?;
 
     // ── Step 1: tokenize item titles ──
     let mut suggested_name = String::new();
@@ -23,7 +22,7 @@ pub fn fetch_feed_preview(url: &str) -> anyhow::Result<FeedPreview> {
     let mut latest_episode: Option<u32> = None;
     let mut group: Option<String> = None;
 
-    for title in &rss.item_titles {
+    for title in &preview.item_titles {
         if let Some(parsed) = tokenizer::parse_torrent_title(title) {
             if suggested_name.is_empty()
                 && let Some(n) = parsed.name
@@ -46,13 +45,13 @@ pub fn fetch_feed_preview(url: &str) -> anyhow::Result<FeedPreview> {
 
     // ── Step 2: raw first item title ──
     let suggested_name = if suggested_name.is_empty() {
-        rss.item_titles.first().cloned().unwrap_or_default()
+        preview.item_titles.first().cloned().unwrap_or_default()
     } else {
         suggested_name
     };
 
     // ── Bangumi ──
-    let mut bangumi_info = if suggested_name.is_empty() {
+    let bangumi_info = if suggested_name.is_empty() {
         None
     } else {
         lookup_bangumi(&suggested_name)
@@ -63,7 +62,7 @@ pub fn fetch_feed_preview(url: &str) -> anyhow::Result<FeedPreview> {
         suggested_season,
         latest_episode,
         group,
-        sample_titles: rss.item_titles,
+        sample_titles: preview.item_titles,
         bangumi_info,
     })
 }

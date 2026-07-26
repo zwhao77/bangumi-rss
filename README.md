@@ -53,7 +53,6 @@ Open `http://localhost:7893` in browser to subscribe and manage.
 | `QBITTORRENT_USER` | `admin` | qBittorrent username |
 | `QBITTORRENT_PASS` | `adminadmin` | qBittorrent password |
 | `BANGUMI_API_BASE` | `https://api.bgm.tv` | Bangumi API base URL |
-| `MAX_CONCURRENCY` | `8` | Max concurrent HTTP requests |
 | `TORRENT_CONCURRENCY` | `4` | Worker pool threads (RSS + torrent downloads) |
 | `QUEUE_CAPACITY` | `512` | Worker pool job queue capacity |
 | `BIND_ADDR` | `127.0.0.1` | HTTP server bind address (`0.0.0.0` for all interfaces) |

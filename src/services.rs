@@ -3,11 +3,13 @@
 pub mod bangumi;
 pub mod downloader;
 pub mod executor;
+pub mod fetch_pool;
 pub mod fs;
 pub mod mock;
 pub mod notify;
 pub mod persistence;
 pub mod qbittorrent;
+pub mod fetch;
 pub mod server;
 pub mod timer;
 

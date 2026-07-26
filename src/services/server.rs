@@ -1,9 +1,11 @@
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crossbeam_channel::Sender;
 use matchit::Router;
+use socket2::{Domain, Protocol, Socket, Type};
 use tiny_http::{Method, Response};
 
 use crate::core::event::Event;
@@ -12,6 +14,14 @@ use crate::types::{ApiResponse, BangumiInfo};
 use base64::Engine as _;
 
 use crate::utils::preview;
+
+/// RAII guard: decrements the connection counter on drop.
+struct CallGuard(Arc<AtomicUsize>);
+impl Drop for CallGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
+}
 
 const JSON_TYPE: &str = "Content-Type: application/json; charset=utf-8";
 const HTML_TYPE: &str = "Content-Type: text/html; charset=utf-8";
@@ -22,7 +32,7 @@ const CSS_TYPE: &str = "Content-Type: text/css; charset=utf-8";
 pub struct ServerConfig {
     pub bind_addr: String,
     pub port: u16,
-    pub max_concurrency: usize,
+    pub max_connections: u32,
     pub auth_username: String,
     pub auth_password: String,
 }
@@ -50,6 +60,7 @@ enum Route {
     BangumiSubjects,  // GET /api/bangumi/subjects/{id}
     BangumiSearch,    // GET /api/bangumi/search
     Health,           // GET /api/health
+    Slow,             // GET /api/slow  (benchmark: sleeps 2s)
 }
 
 fn build_router() -> Router<Route> {
@@ -74,6 +85,8 @@ fn build_router() -> Router<Route> {
         .expect("route: /api/poll");
     r.insert("/api/health", Route::Health)
         .expect("route: /api/health");
+    r.insert("/api/slow", Route::Slow)
+        .expect("route: /api/slow");
     r
 }
 
@@ -104,9 +117,9 @@ pub fn start(
     fs: Arc<dyn FileOps>,
     cfg: ServerConfig,
 ) {
-    let server = try_bind(&cfg.bind_addr, cfg.port).unwrap_or_else(|| {
+    let server = try_bind(&cfg.bind_addr, cfg.port, cfg.max_connections).unwrap_or_else(|| {
         log::info!("port {} unavailable, trying OS-assigned", cfg.port);
-        try_bind(&cfg.bind_addr, 0).unwrap_or_else(|| {
+        try_bind(&cfg.bind_addr, 0, cfg.max_connections).unwrap_or_else(|| {
             log::error!("fatal: failed to bind any port");
             std::process::exit(1);
         })
@@ -122,113 +135,139 @@ pub fn start(
     let router = build_router();
     let tx = Arc::new(event_tx);
     let dl = downloader;
-    let semaphore = Arc::new(crate::utils::semaphore::Semaphore::new(cfg.max_concurrency));
+    let active = Arc::new(AtomicUsize::new(0));
+    let max_active = cfg.max_connections as usize;
 
     for mut request in server.incoming_requests() {
-        let _permit = semaphore.acquire().expect("server semaphore closed");
-        let tx = tx.clone();
-        let dl = dl.clone();
-        let method = request.method().clone();
-        let url = request.url().to_string();
-
-        // ── Basic Auth check ──
-        if !cfg.auth_username.is_empty() {
-            let authorized = request
-                .headers()
-                .iter()
-                .find(|h| h.field.equiv("Authorization"))
-                .and_then(|h| {
-                    let h = h.value.as_str().strip_prefix("Basic ")?;
-                    let decoded = base64::engine::general_purpose::STANDARD.decode(h).ok()?;
-                    let s = std::str::from_utf8(&decoded).ok()?;
-                    let (u, p) = s.split_once(':')?;
-                    Some(u == cfg.auth_username && p == cfg.auth_password)
-                })
-                .unwrap_or(false);
-
-            if !authorized {
-                let _ = request.respond(
-                    Response::from_string("401 Unauthorized")
-                        .with_status_code(401)
-                        .with_header(
-                            "WWW-Authenticate: Basic realm=\"bangumi-rss\""
-                                .parse::<tiny_http::Header>()
-                                .expect("invalid WWW-Authenticate header"),
-                        ),
-                );
-                continue;
-            }
+        let current = active.fetch_add(1, Ordering::Relaxed) + 1;
+        if current > max_active {
+            active.fetch_sub(1, Ordering::Relaxed);
+            let _ = request.respond(
+                Response::from_string(r#"{"error":"too many requests"}"#)
+                    .with_status_code(503)
+                    .with_header(
+                        "Content-Type: application/json; charset=utf-8"
+                            .parse::<tiny_http::Header>()
+                            .unwrap(),
+                    ),
+            );
+            log::warn!("503: connection limit ({max_active}) exceeded");
+            continue;
         }
 
-        let mut body = String::new();
-        let _ = request.as_reader().read_to_string(&mut body);
-        log::info!("-> {} {} body={}", method, url, truncate(&body, 200));
+        let tx = tx.clone();
+        let dl = dl.clone();
+        let fs = fs.clone();
+        let active = active.clone();
+        let auth_username = cfg.auth_username.clone();
+        let auth_password = cfg.auth_password.clone();
+        let router = router.clone();
 
-        // Strip query string for matchit routing.
-        let path = url.split('?').next().unwrap_or(&url);
-        let matched = router.at(path).ok();
-        let route = matched.as_ref().map(|m| m.value);
+        std::thread::spawn(move || {
+            let _guard = CallGuard(active);
 
-        let resp = match (route, method) {
-            // ═══ / ═══
-            (None, _) if path == "/" => handle_index(&*fs),
-            (None, _) if path == "/style.css" => handle_style_css(&*fs),
+            let method = request.method().clone();
+            let url = request.url().to_string();
 
-            // ═══ /api/feeds ═══
-            (Some(Route::Feeds), Method::Get) => handle_list_feeds(&tx),
-            (Some(Route::Feeds), Method::Post) => handle_feed_create(&body, &tx),
+            // ── Basic Auth check ──
+            if !auth_username.is_empty() {
+                let authorized = request
+                    .headers()
+                    .iter()
+                    .find(|h| h.field.equiv("Authorization"))
+                    .and_then(|h| {
+                        let h = h.value.as_str().strip_prefix("Basic ")?;
+                        let decoded = base64::engine::general_purpose::STANDARD.decode(h).ok()?;
+                        let s = std::str::from_utf8(&decoded).ok()?;
+                        let (u, p) = s.split_once(':')?;
+                        Some(u == auth_username && p == auth_password)
+                    })
+                    .unwrap_or(false);
 
-            // ═══ /api/feeds/update ═══
-            (Some(Route::FeedUpdate), Method::Post) => handle_feed_update_all(&tx),
-
-            // ═══ /api/feeds/{id} ═══
-            (Some(Route::FeedId), Method::Put) => {
-                let id = matched
-                    .expect("FeedId matched but no route")
-                    .params
-                    .get("id")
-                    .unwrap_or("");
-                handle_feed_update(id, &body, &tx)
+                if !authorized {
+                    let _ = request.respond(
+                        Response::from_string("401 Unauthorized")
+                            .with_status_code(401)
+                            .with_header(
+                                "WWW-Authenticate: Basic realm=\"bangumi-rss\""
+                                    .parse::<tiny_http::Header>()
+                                    .expect("invalid WWW-Authenticate header"),
+                            ),
+                    );
+                    return;
+                }
             }
-            (Some(Route::FeedId), Method::Delete) => {
-                let id = matched
-                    .expect("FeedId matched but no route")
-                    .params
-                    .get("id")
-                    .unwrap_or("");
-                handle_feed_delete(id, &tx)
-            }
 
-            // ═══ /api/feeds/preview ═══
-            (Some(Route::FeedPreview), Method::Post) => handle_preview(&body),
+            let mut body = String::new();
+            let _ = request.as_reader().read_to_string(&mut body);
+            log::info!("-> {} {} body={}", method, url, truncate(&body, 200));
 
-            // ═══ /api/downloads ═══
-            (Some(Route::Downloads), Method::Get) => handle_list_downloads(&tx),
-            (Some(Route::DownloadsRefresh), Method::Post) => handle_refresh(&tx),
+            let path = url.split('?').next().unwrap_or(&url);
+            let matched = router.at(path).ok();
+            let route = matched.as_ref().map(|m| m.value);
 
-            // ═══ /api/poll ═══
-            (Some(Route::Poll), Method::Post) => handle_poll(&tx),
+            let resp = match (route, method) {
+                // ═══ / ═══
+                (None, _) if path == "/" => handle_index(&*fs),
+                (None, _) if path == "/style.css" => handle_style_css(&*fs),
 
-            // ═══ /api/bangumi ═══
-            (Some(Route::BangumiSubjects), Method::Get) => {
-                let id = matched
-                    .expect("BangumiSubjects matched but no route")
-                    .params
-                    .get("id")
-                    .unwrap_or("");
-                handle_bangumi_subject(id)
-            }
-            (Some(Route::BangumiSearch), Method::Get) => handle_bangumi_search(&url),
-            (Some(Route::Health), Method::Get) => handle_health(&*dl),
+                // ═══ /api/feeds ═══
+                (Some(Route::Feeds), Method::Get) => handle_list_feeds(&tx),
+                (Some(Route::Feeds), Method::Post) => handle_feed_create(&body, &tx),
 
-            _ => AppResponse::Text {
-                code: 404,
-                body: "404".into(),
-                content_type: JSON_TYPE,
-            },
-        };
+                // ═══ /api/feeds/update ═══
+                (Some(Route::FeedUpdate), Method::Post) => handle_feed_update_all(&tx),
 
-        respond(request, resp, &url);
+                // ═══ /api/feeds/{id} ═══
+                (Some(Route::FeedId), Method::Put) => {
+                    let id = matched
+                        .expect("FeedId matched but no route")
+                        .params
+                        .get("id")
+                        .unwrap_or("");
+                    handle_feed_update(id, &body, &tx)
+                }
+                (Some(Route::FeedId), Method::Delete) => {
+                    let id = matched
+                        .expect("FeedId matched but no route")
+                        .params
+                        .get("id")
+                        .unwrap_or("");
+                    handle_feed_delete(id, &tx)
+                }
+
+                // ═══ /api/feeds/preview ═══
+                (Some(Route::FeedPreview), Method::Post) => handle_preview(&body),
+
+                // ═══ /api/downloads ═══
+                (Some(Route::Downloads), Method::Get) => handle_list_downloads(&tx),
+                (Some(Route::DownloadsRefresh), Method::Post) => handle_refresh(&tx),
+
+                // ═══ /api/poll ═══
+                (Some(Route::Poll), Method::Post) => handle_poll(&tx),
+
+                // ═══ /api/bangumi ═══
+                (Some(Route::BangumiSubjects), Method::Get) => {
+                    let id = matched
+                        .expect("BangumiSubjects matched but no route")
+                        .params
+                        .get("id")
+                        .unwrap_or("");
+                    handle_bangumi_subject(id)
+                }
+                (Some(Route::BangumiSearch), Method::Get) => handle_bangumi_search(&url),
+                (Some(Route::Health), Method::Get) => handle_health(&*dl),
+                (Some(Route::Slow), Method::Get) => handle_slow(),
+
+                _ => AppResponse::Text {
+                    code: 404,
+                    body: "404".into(),
+                    content_type: JSON_TYPE,
+                },
+            };
+
+            respond(request, resp, &url);
+        });
     }
 }
 
@@ -274,9 +313,14 @@ fn respond(request: tiny_http::Request, resp: AppResponse, url: &str) {
 // ── Server binding ──
 
 /// Try to bind to a specific port. Returns `None` if the port is unavailable.
-fn try_bind(bind_addr: &str, port: u16) -> Option<tiny_http::Server> {
+fn try_bind(bind_addr: &str, port: u16, backlog: u32) -> Option<tiny_http::Server> {
     let addr: SocketAddr = format!("{bind_addr}:{port}").parse().ok()?;
-    tiny_http::Server::http(addr).ok()
+    let socket = Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP)).ok()?;
+    socket.set_reuse_address(true).ok()?;
+    socket.bind(&addr.into()).ok()?;
+    socket.listen(backlog as i32).ok()?;
+    let listener: std::net::TcpListener = socket.into();
+    tiny_http::Server::from_listener(listener, None::<tiny_http::SslConfig>).ok()
 }
 
 // ── Route handlers ──
@@ -578,6 +622,15 @@ fn handle_health(dl: &dyn TorrentDownloader) -> AppResponse {
                     .to_string(),
             content_type: JSON_TYPE,
         },
+    }
+}
+
+fn handle_slow() -> AppResponse {
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    AppResponse::Text {
+        code: 200,
+        body: r#"{"success":true,"slow":"ok"}"#.into(),
+        content_type: JSON_TYPE,
     }
 }
 

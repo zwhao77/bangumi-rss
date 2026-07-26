@@ -23,7 +23,7 @@ use services::EffectExecutor;
 use services::TimerManager;
 use services::persistence::load_state;
 use services::start_server;
-use utils::worker_pool::WorkerPool;
+use services::fetch_pool::FetchPool;
 
 const CHANNEL_CAPACITY: usize = 256;
 
@@ -133,7 +133,7 @@ fn main() -> anyhow::Result<()> {
                 services::server::ServerConfig {
                     bind_addr: config.bind_addr,
                     port: config.port,
-                    max_concurrency: config.max_concurrency,
+                    max_connections: config.max_connections,
                     auth_username: config.auth_username,
                     auth_password: config.auth_password,
                 },
@@ -149,7 +149,7 @@ fn main() -> anyhow::Result<()> {
         downloader,
         fs: fs_ops_for_executor,
         notifier,
-        worker_pool: WorkerPool::new(config.torrent_concurrency, config.queue_capacity),
+        worker_pool: FetchPool::new(config.torrent_concurrency, config.queue_capacity),
         event_tx: event_tx.clone(),
         effect_tx: effect_tx.clone(),
     };

@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::core::effect::Effect;
 use crate::core::event::Event;
+use crate::services::fetch_pool::{FetchJob, FetchPool};
 use crate::traits::{FileOps, Notifier, TorrentDownloader};
 use crate::types::AnimeIdentity;
 
@@ -22,7 +23,7 @@ pub struct EffectExecutor {
     pub downloader: Arc<dyn TorrentDownloader>,
     pub fs: Arc<dyn FileOps>,
     pub notifier: Arc<dyn Notifier>,
-    pub worker_pool: crate::utils::worker_pool::WorkerPool,
+    pub worker_pool: FetchPool,
     pub event_tx: Sender<Event>,
     /// For self-call patterns: spawned threads feed effects back to this executor.
     pub effect_tx: Sender<Effect>,
@@ -99,7 +100,7 @@ impl EffectExecutor {
             return vec![];
         }
         self.worker_pool
-            .try_spawn(crate::utils::worker_pool::Job::FetchRss {
+            .try_spawn(FetchJob::FetchRss {
                 url: url.to_string(),
                 feed_id,
                 download_dir: download_dir.to_string(),
@@ -133,7 +134,7 @@ impl EffectExecutor {
         if is_torrent {
             if self
                 .worker_pool
-                .try_spawn(crate::utils::worker_pool::Job::DownloadTorrent {
+                .try_spawn(FetchJob::DownloadTorrent {
                     uri: uri.to_string(),
                     save_path: dir.to_string(),
                     feed_id,
@@ -383,7 +384,7 @@ mod tests {
             downloader: downloader.clone(),
             fs: fs.clone(),
             notifier,
-            worker_pool: crate::utils::worker_pool::WorkerPool::new(4, 512),
+            worker_pool: FetchPool::new(4, 512),
             event_tx: event_tx.clone(),
             effect_tx: effect_tx.clone(),
         };
@@ -391,7 +392,7 @@ mod tests {
         // ── populate tracker in AppState ──
         let feed_id = uuid::Uuid::new_v4();
         let anime = AnimeIdentity {
-            name: "葬送的芙莉莲".into(),
+            name: "Test Anime".into(),
             season: 2,
         };
         let mut state = AppState {
@@ -457,7 +458,7 @@ mod tests {
                         ..
                     } => {
                         assert_eq!(episode, 1);
-                        assert!(library_path.contains("/lib/葬送的芙莉莲/S02/"));
+                        assert!(library_path.contains("/lib/Test Anime/S02/"));
                         got_completed = true;
                         break;
                     }
