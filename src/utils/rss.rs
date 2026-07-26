@@ -4,6 +4,7 @@
 //! HTTP fetch is handled by `crate::services::rss`.
 
 use crate::types::{RssItem, RssPreview};
+use crate::utils::tokenizer::is_batch_title;
 
 /// Parse an RSS XML body into a list of torrent items.
 pub fn parse_rss(body: &str) -> anyhow::Result<Vec<RssItem>> {
@@ -18,7 +19,11 @@ pub fn parse_rss(body: &str) -> anyhow::Result<Vec<RssItem>> {
             .unwrap_or_default();
 
         if !title.is_empty() && !torrent_url.is_empty() {
-            items.push(RssItem { title, torrent_url });
+            items.push(RssItem {
+                is_batch: is_batch_title(&title),
+                title,
+                torrent_url,
+            });
         }
     }
     Ok(items)
@@ -70,6 +75,7 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].title, "[Subs] Anime - 01 [1080p]");
         assert_eq!(items[0].torrent_url, "https://example.com/01.torrent");
+        assert!(!items[0].is_batch);
     }
 
     #[test]

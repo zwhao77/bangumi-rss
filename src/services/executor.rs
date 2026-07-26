@@ -306,7 +306,7 @@ impl EffectExecutor {
                 std::thread::spawn(move || {
                     let timeout = std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS);
                     match ureq::post(&url)
-                        .set("Content-Type", &content_type)
+                        .set("Content-Type", content_type)
                         .timeout(timeout)
                         .send_string(&body)
                     {

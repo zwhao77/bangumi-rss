@@ -160,10 +160,9 @@ mod tests {
 
     #[test]
     fn test_cn_season_style() {
-        let p = parse_torrent_title(
-            "[测试组] 虚构动画 第二季 / Fiction Anime S2 [01][WebRip][1080p]",
-        )
-        .unwrap();
+        let p =
+            parse_torrent_title("[测试组] 虚构动画 第二季 / Fiction Anime S2 [01][WebRip][1080p]")
+                .unwrap();
         assert_eq!(p.group.as_deref(), Some("测试组"));
         assert!(p.name.unwrap().contains("虚构动画"));
         assert_eq!(p.season, Some(2));
@@ -235,10 +234,8 @@ mod tests {
 
     #[test]
     fn test_extract_season() {
-        let p = parse_torrent_title(
-            "[测试组] 虚构アニメ S2 / Fiction Anime S2 [01][WebRip]",
-        )
-        .unwrap();
+        let p =
+            parse_torrent_title("[测试组] 虚构アニメ S2 / Fiction Anime S2 [01][WebRip]").unwrap();
         assert_eq!(p.season, Some(2));
         assert_eq!(
             extract_season("[SomeGroup] Some Anime S3 - 05 [1080P]"),

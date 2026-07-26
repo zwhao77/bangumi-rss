@@ -153,6 +153,7 @@ mod mock_fs {
     pub struct MockFileSystem {
         dirs: std::sync::Mutex<HashSet<PathBuf>>,
         moves: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
+        #[allow(dead_code)]
         pub existing: std::sync::Mutex<HashSet<PathBuf>>,
         files: std::sync::Mutex<HashMap<PathBuf, String>>,
     }
@@ -167,6 +168,7 @@ mod mock_fs {
             }
         }
 
+        #[allow(dead_code)]
         pub fn move_count(&self) -> usize {
             self.moves.lock().unwrap().len()
         }

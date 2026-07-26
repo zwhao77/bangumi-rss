@@ -30,6 +30,9 @@ pub struct FeedInfo {
 pub struct RssItem {
     pub title: String,
     pub torrent_url: String,
+    /// `true` if the title looks like a batch release (e.g. "01-12").
+    /// Set during RSS parsing so the logic layer can skip it directly.
+    pub is_batch: bool,
 }
 
 /// A file inside a completed torrent download.
