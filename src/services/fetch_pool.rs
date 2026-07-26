@@ -26,12 +26,6 @@ pub enum FetchJob {
         download_dir: String,
         effect_tx: Sender<Effect>,
     },
-    /// Fire-and-forget webhook POST. No feedback Effects.
-    Notify {
-        url: String,
-        body: String,
-        content_type: String,
-    },
 }
 
 impl FetchJob {
@@ -49,11 +43,6 @@ impl FetchJob {
                 download_dir,
                 effect_tx,
             } => execute_fetch_rss(url, feed_id, download_dir, effect_tx),
-            FetchJob::Notify {
-                url,
-                body,
-                content_type,
-            } => execute_notify(url, body, content_type),
         }
     }
 }
@@ -117,22 +106,6 @@ fn execute_fetch_rss(url: String, feed_id: Uuid, download_dir: String, effect_tx
                 })
                 .ok();
         }
-    }
-}
-
-fn execute_notify(url: String, body: String, content_type: String) {
-    log::debug!("webhook POST: {url}");
-    let timeout = std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS);
-    match ureq::post(&url)
-        .set("Content-Type", &content_type)
-        .timeout(timeout)
-        .send_string(&body)
-    {
-        Ok(r) if (200..300).contains(&r.status()) => {
-            log::info!("webhook sent ({})", r.status());
-        }
-        Ok(r) => log::warn!("webhook returned {}", r.status()),
-        Err(e) => log::warn!("webhook failed: {e}"),
     }
 }
 

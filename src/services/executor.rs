@@ -302,15 +302,21 @@ impl EffectExecutor {
                         None => render_failed(&cfg.template, f),
                     },
                 };
-                self.worker_pool
-                    .try_spawn(FetchJob::Notify {
-                        url: cfg.url.clone(),
-                        body,
-                        content_type: content_type.to_string(),
-                    })
-                    .unwrap_or_else(|_| {
-                        log::warn!("webhook queue full, notification dropped");
-                    });
+                let url = cfg.url.clone();
+                std::thread::spawn(move || {
+                    let timeout = std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS);
+                    match ureq::post(&url)
+                        .set("Content-Type", &content_type)
+                        .timeout(timeout)
+                        .send_string(&body)
+                    {
+                        Ok(r) if (200..300).contains(&r.status()) => {
+                            log::info!("webhook sent ({})", r.status());
+                        }
+                        Ok(r) => log::warn!("webhook returned {}", r.status()),
+                        Err(e) => log::warn!("webhook failed: {e}"),
+                    }
+                });
             }
             None => {
                 // Log to stdout when no webhook is configured

@@ -89,6 +89,9 @@ pub enum Event {
 
     /// RSS fetch/parse failed for a feed.
     RssFetchFailed { feed_id: Uuid, error: String },
+
+    /// API: send test notifications to verify webhook config.
+    NotifyTest,
 }
 
 #[derive(Debug)]

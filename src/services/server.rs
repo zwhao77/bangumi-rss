@@ -52,6 +52,7 @@ enum Route {
     BangumiSubjects,  // GET /api/bangumi/subjects/{id}
     BangumiSearch,    // GET /api/bangumi/search
     Health,           // GET /api/health
+    NotifyTest,       // POST /api/notify/test
 }
 
 fn build_router() -> Router<Route> {
@@ -76,6 +77,8 @@ fn build_router() -> Router<Route> {
         .expect("route: /api/poll");
     r.insert("/api/health", Route::Health)
         .expect("route: /api/health");
+    r.insert("/api/notify/test", Route::NotifyTest)
+        .expect("route: /api/notify/test");
     r
 }
 
@@ -225,6 +228,9 @@ pub fn start(
             }
             (Some(Route::BangumiSearch), Method::Get) => handle_bangumi_search(&url),
             (Some(Route::Health), Method::Get) => handle_health(&*dl),
+
+            // ═══ /api/notify/test ═══
+            (Some(Route::NotifyTest), Method::Post) => handle_notify_test(&tx),
 
             _ => AppResponse::Text {
                 code: 404,
@@ -599,6 +605,22 @@ fn handle_health(dl: &dyn TorrentDownloader) -> AppResponse {
                     .to_string(),
             content_type: JSON_TYPE,
         },
+    }
+}
+
+/// POST /api/notify/test — send test notifications to verify webhook config.
+fn handle_notify_test(tx: &crossbeam_channel::Sender<crate::core::event::Event>) -> AppResponse {
+    if tx.send(crate::core::event::Event::NotifyTest).is_err() {
+        return AppResponse::Text {
+            code: 500,
+            body: r#"{"success":false,"message":"server busy"}"#.into(),
+            content_type: JSON_TYPE,
+        };
+    }
+    AppResponse::Text {
+        code: 200,
+        body: r#"{"success":true,"message":"test notifications sent"}"#.into(),
+        content_type: JSON_TYPE,
     }
 }
 

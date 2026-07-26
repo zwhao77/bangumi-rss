@@ -8,7 +8,7 @@ use crate::core::event::{DownloadStatus, Event};
 use crate::core::state::{AppState, Feed};
 use crate::types::{
     AnimeIdentity, ApiResponse, BangumiInfo, DownloadInfo, DownloadSnapshot, EpisodeDownloadedData,
-    EpisodeKey, EpisodeRecord, FeedInfo, Notification, RecordStatus, RssItem,
+    EpisodeKey, EpisodeRecord, FailedData, FeedInfo, Notification, RecordStatus, RssItem,
 };
 use uuid::Uuid;
 
@@ -58,6 +58,7 @@ pub fn reduce(state: &AppState, event: Event) -> (AppState, Vec<Effect>) {
         Event::RefreshDownloads => reduce_refresh_downloads(state),
         Event::DownloadsRefreshed { snapshots } => reduce_downloads_refreshed(state, snapshots),
         Event::RssFetchFailed { feed_id, error } => reduce_rss_fetch_failed(state, feed_id, error),
+        Event::NotifyTest => reduce_notify_test(state),
     }
 }
 
@@ -199,9 +200,18 @@ fn reduce_downloader_notification(
         }
         DownloadStatus::Failed => {
             log::warn!("download failed: {infohash}");
+            let title = state
+                .tracker
+                .get(&infohash)
+                .map(|r| r.key.anime.name.clone())
+                .unwrap_or_else(|| format!("unknown ({})", &infohash[..infohash.len().min(16)]));
+            let effects = vec![Effect::Notify(Notification::Failed(FailedData {
+                title,
+                message: "下载失败: 种子已失效或下载器不可用".to_string(),
+            }))];
             let mut new_state = state.clone();
             new_state.tracker.remove(&infohash);
-            (new_state, vec![])
+            (new_state, effects)
         }
     }
 }
@@ -375,14 +385,46 @@ fn reduce_refresh_downloads(state: &AppState) -> (AppState, Vec<Effect>) {
     (state.clone(), vec![Effect::QueryAllDownloads])
 }
 
-/// RSS fetch/parse failed — log and return unchanged state.
+/// RSS fetch/parse failed — log and notify.
 fn reduce_rss_fetch_failed(
     state: &AppState,
     feed_id: Uuid,
     error: String,
 ) -> (AppState, Vec<Effect>) {
     log::warn!("RSS fetch failed for feed={feed_id}: {error}");
-    (state.clone(), vec![])
+    let url = state
+        .feeds
+        .get(&feed_id)
+        .map(|f| f.url.as_str())
+        .unwrap_or("unknown");
+    let effects = vec![Effect::Notify(Notification::Failed(FailedData {
+        title: url.into(),
+        message: format!("RSS 获取失败: {error}"),
+    }))];
+    (state.clone(), effects)
+}
+
+/// API: send two test notifications to verify webhook config.
+fn reduce_notify_test(state: &AppState) -> (AppState, Vec<Effect>) {
+    let effects = vec![
+        Effect::Notify(Notification::EpisodeDownloaded(EpisodeDownloadedData {
+            anime_name: "测试通知".into(),
+            season: 1,
+            episode: 1,
+            library_path: "/anime/测试通知/S01/E01.mp4".into(),
+            image_url: None,
+            name_cn: None,
+            name_original: None,
+            summary: Some("这是一条测试消息，用于验证通知配置".into()),
+            rating: None,
+            eps_count: None,
+        })),
+        Effect::Notify(Notification::Failed(FailedData {
+            title: "测试通知".into(),
+            message: "这是一条模拟错误，用于验证错误通知配置".into(),
+        })),
+    ];
+    (state.clone(), effects)
 }
 
 /// Executor sent back fresh snapshots — fill feed context from tracker.
@@ -443,7 +485,8 @@ mod tests {
         let state = empty_state();
         let (new_state, effects) =
             reduce_downloader_notification(&state, "abc".into(), DownloadStatus::Failed);
-        assert!(effects.is_empty());
+        assert_eq!(effects.len(), 1);
+        assert!(matches!(effects[0], Effect::Notify(_)));
         assert_eq!(new_state, state);
     }
 
@@ -624,12 +667,10 @@ mod tests {
     #[test]
     fn rss_fetch_failed_returns_unchanged_state() {
         let state = empty_state();
-        let (new_state, effects) = reduce_rss_fetch_failed(
-            &state,
-            uuid::Uuid::new_v4(),
-            "connection timeout".into(),
-        );
-        assert!(effects.is_empty());
+        let (new_state, effects) =
+            reduce_rss_fetch_failed(&state, uuid::Uuid::new_v4(), "connection timeout".into());
+        assert_eq!(effects.len(), 1);
+        assert!(matches!(effects[0], Effect::Notify(_)));
         assert_eq!(new_state, state);
     }
 }
