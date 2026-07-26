@@ -59,6 +59,8 @@ pub struct Config {
     pub bind_addr: String,
     #[envconfig(from = "MAX_CONNECTIONS", default = "128")]
     pub max_connections: u32,
+    #[envconfig(from = "MAX_QUEUE", default = "0")]
+    pub max_queue: u32,
 }
 
 /// Default HTTP timeout for all outbound requests (RSS, torrent, Aria2 RPC, etc.).

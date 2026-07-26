@@ -134,6 +134,7 @@ fn main() -> anyhow::Result<()> {
                     bind_addr: config.bind_addr,
                     port: config.port,
                     max_connections: config.max_connections,
+                    max_queue: config.max_queue,
                     auth_username: config.auth_username,
                     auth_password: config.auth_password,
                 },

@@ -7,3 +7,4 @@
 state.json
 /tmp/
 SECURITY_NOTES.md
+vendored/tiny-http/target/
