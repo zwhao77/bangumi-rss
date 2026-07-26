@@ -34,6 +34,9 @@ fn main() -> anyhow::Result<()> {
 
     let config = Config::init_from_env()?;
 
+    // Resolve webhook config before any partial moves.
+    let webhook = config.resolve_webhook()?;
+
     // Propagate config to stateless modules.
     crate::services::bangumi::init_api_base(config.bangumi_api_base);
 
@@ -81,7 +84,6 @@ fn main() -> anyhow::Result<()> {
     };
 
     let fs_ops_for_executor = Arc::clone(&fs_ops);
-    let notifier = Arc::new(services::NoopNotifier);
 
     // ── Verify downloader connectivity ──
     if let Err(e) = downloader.check_connection() {
@@ -118,6 +120,7 @@ fn main() -> anyhow::Result<()> {
             true
         });
     }
+
     thread::spawn(move || tm.run());
 
     // HTTP API server — skippable via NO_SERVER.
@@ -149,7 +152,7 @@ fn main() -> anyhow::Result<()> {
     let executor = EffectExecutor {
         downloader,
         fs: fs_ops_for_executor,
-        notifier,
+        webhook,
         worker_pool: FetchPool::new(config.torrent_concurrency, config.queue_capacity),
         event_tx: event_tx.clone(),
         effect_tx: effect_tx.clone(),

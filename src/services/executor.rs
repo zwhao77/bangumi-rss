@@ -11,8 +11,9 @@ use uuid::Uuid;
 use crate::core::effect::Effect;
 use crate::core::event::Event;
 use crate::services::fetch_pool::{FetchJob, FetchPool};
-use crate::traits::{FileOps, Notifier, TorrentDownloader};
+use crate::traits::{FileOps, TorrentDownloader};
 use crate::types::AnimeIdentity;
+use crate::utils::notify::{WebhookConfig, render, render_failed};
 
 /// Executes effects by delegating to service trait objects.
 ///
@@ -22,7 +23,7 @@ use crate::types::AnimeIdentity;
 pub struct EffectExecutor {
     pub downloader: Arc<dyn TorrentDownloader>,
     pub fs: Arc<dyn FileOps>,
-    pub notifier: Arc<dyn Notifier>,
+    pub webhook: Option<WebhookConfig>,
     pub worker_pool: FetchPool,
     pub event_tx: Sender<Event>,
     /// For self-call patterns: spawned threads feed effects back to this executor.
@@ -74,7 +75,7 @@ impl EffectExecutor {
                 feed_id,
                 torrent_url,
             } => self.do_add_torrent_bytes(&data, &save_path, feed_id, &torrent_url),
-            Effect::Notify { title, body } => self.do_notify(&title, &body),
+            Effect::Notify(notification) => self.do_notify(&notification),
             Effect::QueryAllDownloads => self.do_query_all(),
             Effect::RssFetchComplete {
                 feed_id,
@@ -289,8 +290,40 @@ impl EffectExecutor {
         effects
     }
 
-    fn do_notify(&self, title: &str, body: &str) -> Vec<Effect> {
-        self.notifier.send(title, body);
+    fn do_notify(&self, notification: &crate::types::Notification) -> Vec<Effect> {
+        match &self.webhook {
+            Some(cfg) => {
+                let (body, content_type) = match notification {
+                    crate::types::Notification::EpisodeDownloaded(_) => {
+                        render(&cfg.template, notification)
+                    }
+                    crate::types::Notification::Failed(f) => match &cfg.error_template {
+                        Some(t) => render(t, notification),
+                        None => render_failed(&cfg.template, f),
+                    },
+                };
+                self.worker_pool
+                    .try_spawn(FetchJob::Notify {
+                        url: cfg.url.clone(),
+                        body,
+                        content_type: content_type.to_string(),
+                    })
+                    .unwrap_or_else(|_| {
+                        log::warn!("webhook queue full, notification dropped");
+                    });
+            }
+            None => {
+                // Log to stdout when no webhook is configured
+                match notification {
+                    crate::types::Notification::EpisodeDownloaded(d) => {
+                        log::info!("[notify] {} 第{}集 下载完成", d.anime_name, d.episode);
+                    }
+                    crate::types::Notification::Failed(f) => {
+                        log::warn!("[notify] 失败: {} - {}", f.title, f.message);
+                    }
+                }
+            }
+        }
         vec![]
     }
 
@@ -356,7 +389,6 @@ mod tests {
     use crate::core::effect::Effect;
     use crate::core::event::Event;
     use crate::core::state::AppState;
-    use crate::services::NoopNotifier;
     use crate::services::mock::{MockDownloader, MockFileSystem};
     use crate::types::{AnimeIdentity, EpisodeKey, EpisodeRecord, RecordStatus};
 
@@ -368,8 +400,6 @@ mod tests {
         // ── setup services ──
         let downloader = Arc::new(MockDownloader::new());
         let fs = Arc::new(MockFileSystem::new());
-        let notifier = Arc::new(NoopNotifier);
-
         // Register a file that "exists" on disk so move succeeds.
         let infohash = downloader.add_uri("test.torrent", "/dl/test-feed").unwrap();
 
@@ -383,7 +413,7 @@ mod tests {
         let executor = EffectExecutor {
             downloader: downloader.clone(),
             fs: fs.clone(),
-            notifier,
+            webhook: None,
             worker_pool: FetchPool::new(4, 512),
             event_tx: event_tx.clone(),
             effect_tx: effect_tx.clone(),

@@ -108,6 +108,7 @@ dependencies = [
  "envconfig",
  "log",
  "matchit",
+ "percent-encoding",
  "regex",
  "rss",
  "serde",

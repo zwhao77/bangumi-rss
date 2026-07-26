@@ -61,6 +61,49 @@ pub struct Config {
     pub max_connections: u32,
     #[envconfig(from = "MAX_QUEUE", default = "0")]
     pub max_queue: u32,
+
+    #[envconfig(from = "WEBHOOK_URL", default = "")]
+    pub webhook_url: String,
+    /// Preset format: bark / gotify / serverchan (overrides WEBHOOK_TEMPLATE).
+    #[envconfig(from = "WEBHOOK_FORMAT", default = "")]
+    pub webhook_format: String,
+    /// Custom template string (ignored when WEBHOOK_FORMAT is set).
+    /// For JSON: starts with `{` or `[`. Otherwise treated as form-encoded.
+    #[envconfig(from = "WEBHOOK_TEMPLATE", default = "")]
+    pub webhook_template: String,
+
+    /// Optional separate template for `Failed` notifications.
+    /// When unset, uses built-in error templates matching the main template's Content-Type.
+    #[envconfig(from = "WEBHOOK_ERROR_TEMPLATE", default = "")]
+    pub webhook_error_template: String,
+}
+
+impl Config {
+    /// Resolve webhook configuration — returns `None` if WEBHOOK_URL is not set.
+    /// Returns `Err` if `WEBHOOK_FORMAT` contains an invalid value.
+    pub fn resolve_webhook(&self) -> anyhow::Result<Option<crate::utils::notify::WebhookConfig>> {
+        let preset = if self.webhook_format.is_empty() {
+            None
+        } else {
+            Some(
+                self.webhook_format
+                    .parse::<crate::utils::notify::Preset>()
+                    .map_err(|_| {
+                        anyhow::anyhow!(
+                            "invalid WEBHOOK_FORMAT='{}': expected bark, gotify, or serverchan",
+                            self.webhook_format
+                        )
+                    })?,
+            )
+        };
+        Ok(crate::utils::notify::resolve_webhook(
+            &self.webhook_url,
+            preset,
+            (!self.webhook_template.is_empty()).then_some(self.webhook_template.as_str()),
+            (!self.webhook_error_template.is_empty())
+                .then_some(self.webhook_error_template.as_str()),
+        ))
+    }
 }
 
 /// Default HTTP timeout for all outbound requests (RSS, torrent, Aria2 RPC, etc.).

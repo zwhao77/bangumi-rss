@@ -6,7 +6,7 @@
 use std::fmt;
 use uuid::Uuid;
 
-use crate::types::{AnimeIdentity, RssItem};
+use crate::types::{AnimeIdentity, Notification, RssItem};
 
 /// An effect to be executed by the service layer.
 pub enum Effect {
@@ -43,8 +43,8 @@ pub enum Effect {
         expected_episode: u32,
     },
 
-    /// Send an out-of-band notification (webhook / Server酱).
-    Notify { title: String, body: String },
+    /// Send an out-of-band notification (webhook / log).
+    Notify(Notification),
 
     /// Query the downloader for all current tasks (progress + status).
     QueryAllDownloads,
@@ -120,10 +120,9 @@ impl fmt::Debug for Effect {
                 .field("download_dir", download_dir)
                 .field("expected_episode", expected_episode)
                 .finish(),
-            Self::Notify { title, body } => f
+            Self::Notify(notification) => f
                 .debug_struct("Notify")
-                .field("title", title)
-                .field("body", body)
+                .field("notification", notification)
                 .finish(),
             Self::QueryAllDownloads => f.debug_struct("QueryAllDownloads").finish(),
             Self::PollCompleted => f.debug_struct("PollCompleted").finish(),

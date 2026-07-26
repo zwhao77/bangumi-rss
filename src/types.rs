@@ -198,3 +198,35 @@ pub struct DownloadInfo {
     pub size: u64,
     pub name: String,
 }
+
+// ── Notification types ──
+
+/// A new episode has been downloaded and moved to the library.
+#[derive(Debug, Clone)]
+pub struct EpisodeDownloadedData {
+    pub anime_name: String,
+    pub season: u8,
+    pub episode: u32,
+    pub library_path: String,
+    pub name_cn: Option<String>,
+    pub name_original: Option<String>,
+    pub summary: Option<String>,
+    pub rating: Option<f32>,
+    pub image_url: Option<String>,
+    pub eps_count: Option<u32>,
+}
+
+/// Something went wrong.
+#[derive(Debug, Clone)]
+pub struct FailedData {
+    pub title: String,
+    pub message: String,
+}
+
+/// Notification data — pure data, no I/O.
+/// Produced by `logic::reduce`, consumed by the template renderer.
+#[derive(Debug, Clone)]
+pub enum Notification {
+    EpisodeDownloaded(EpisodeDownloadedData),
+    Failed(FailedData),
+}

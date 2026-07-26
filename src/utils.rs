@@ -6,6 +6,7 @@
 //! - `preview` — RSS + Bangumi preview helper
 
 pub mod handler;
+pub mod notify;
 pub mod preview;
 pub mod rss;
 pub mod tokenizer;

@@ -57,7 +57,4 @@ pub trait FileOps: Send + Sync {
     fn write_string(&self, path: &Path, content: &str) -> anyhow::Result<()>;
 }
 
-/// Sends out-of-band notifications (webhook, Server酱, etc.).
-pub trait Notifier: Send + Sync {
-    fn send(&self, title: &str, body: &str);
-}
+

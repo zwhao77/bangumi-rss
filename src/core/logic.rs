@@ -7,8 +7,8 @@ use crate::core::effect::Effect;
 use crate::core::event::{DownloadStatus, Event};
 use crate::core::state::{AppState, Feed};
 use crate::types::{
-    AnimeIdentity, ApiResponse, BangumiInfo, DownloadInfo, DownloadSnapshot, EpisodeKey,
-    EpisodeRecord, FeedInfo, RecordStatus, RssItem,
+    AnimeIdentity, ApiResponse, BangumiInfo, DownloadInfo, DownloadSnapshot, EpisodeDownloadedData,
+    EpisodeKey, EpisodeRecord, FeedInfo, Notification, RecordStatus, RssItem,
 };
 use uuid::Uuid;
 
@@ -221,10 +221,37 @@ fn reduce_episode_completed(
         }
     };
 
-    let effects = vec![Effect::Notify {
-        title: format!("{} 下载完成", record.key.anime.name),
-        body: format!("第 {episode} 集已移动 → {library_path}"),
-    }];
+    // Fetch Bangumi metadata from the feed if available.
+    let (name_cn, name_original, summary, rating, image_url, eps_count) = state
+        .feeds
+        .get(&record.feed_id)
+        .and_then(|f| f.bangumi_info.as_ref())
+        .map(|b| {
+            (
+                Some(b.name_cn.clone()),
+                Some(b.name.clone()),
+                Some(b.summary.clone()),
+                b.rating,
+                Some(b.image_url.clone()),
+                b.eps_count,
+            )
+        })
+        .unwrap_or((None, None, None, None, None, None));
+
+    let notification = Notification::EpisodeDownloaded(EpisodeDownloadedData {
+        anime_name: record.key.anime.name.clone(),
+        season: record.key.anime.season,
+        episode,
+        library_path: library_path.clone(),
+        name_cn,
+        name_original,
+        summary,
+        rating,
+        image_url,
+        eps_count,
+    });
+
+    let effects = vec![Effect::Notify(notification)];
 
     let new_state = state
         .clone()
