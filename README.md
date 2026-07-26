@@ -59,6 +59,51 @@ Open `http://localhost:7893` in browser to subscribe and manage.
 | `AUTH_USERNAME` | — | Basic Auth username (empty = no auth) |
 | `AUTH_PASSWORD` | — | Basic Auth password |
 | `RUST_LOG` | `info` | Log level (`warn` to quieten, `debug` for verbose) |
+| `WEBHOOK_URL` | — | Webhook URL (e.g. `http://gotify:8080/message?token=xxx`) |
+| `WEBHOOK_FORMAT` | — | Preset name: `bark`, `gotify`, or `serverchan` |
+| `WEBHOOK_TEMPLATE` | — | Custom JSON/Form template (overrides preset) |
+| `WEBHOOK_ERROR_TEMPLATE` | — | Custom error template (overrides default error format) |
+
+## Notifications
+
+bangumi-rss sends webhook notifications on download completions and failures.
+
+### Quick Setup (Gotify)
+
+```bash
+# Deploy Gotify
+docker run -d -p 7894:80 gotify/server
+
+# Create an application in Gotify Web UI, copy its token
+# Start bangumi-rss with webhook
+WEBHOOK_URL=http://localhost:7894/message?token=YOUR_TOKEN \
+WEBHOOK_FORMAT=gotify \
+./bangumi-rss
+```
+
+### Presets
+
+| Preset | WEBHOOK_FORMAT | Expected URL |
+|--------|---------------|--------------|
+| [Gotify](https://gotify.net) | `gotify` | `http://host:port/message?token=xxx` |
+| [Bark](https://github.com/Finb/Bark) | `bark` | `http://host:port/your-key` |
+| [Server酱](https://sct.ftqq.com) | `serverchan` | `https://sctapi.ftqq.com/SCTxxx.send` |
+
+### Custom Templates
+
+Use `WEBHOOK_TEMPLATE` for a custom JSON/Form template and `WEBHOOK_ERROR_TEMPLATE` for a dedicated error template. Available placeholders:
+
+- `{{title}}`, `{{message}}` — common
+- `{{anime_name}}`, `{{episode}}`, `{{season}}`, `{{library_path}}` — download events
+- `{{name_cn}}`, `{{name_original}}`, `{{summary}}`, `{{rating}}`, `{{image_url}}`, `{{eps_count}}` — download events (Bangumi metadata)
+
+### Test Endpoint
+
+```bash
+curl -X POST http://localhost:7893/api/notify/test
+```
+
+Sends one normal notification and one failure notification to verify the webhook config. Also accessible via the **📢 测试通知** button in the Web UI.
 
 ## Architecture
 

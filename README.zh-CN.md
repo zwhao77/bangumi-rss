@@ -59,6 +59,51 @@ LIBRARY_DIR=/anime \
 | `AUTH_USERNAME` | — | Basic Auth 用户名（留空不启用） |
 | `AUTH_PASSWORD` | — | Basic Auth 密码 |
 | `RUST_LOG` | `info` | 日志级别（设为 `warn` 可减少输出） |
+| `WEBHOOK_URL` | — | Webhook URL（如 `http://gotify:8080/message?token=xxx`） |
+| `WEBHOOK_FORMAT` | — | 预设格式：`bark`、`gotify` 或 `serverchan` |
+| `WEBHOOK_TEMPLATE` | — | 自定义 JSON/Form 模板（覆盖预设） |
+| `WEBHOOK_ERROR_TEMPLATE` | — | 自定义错误模板（覆盖默认错误格式） |
+
+## 通知
+
+bangumi-rss 在下载完成或失败时发送 Webhook 通知。
+
+### 快速配置（Gotify）
+
+```bash
+# 部署 Gotify
+docker run -d -p 7894:80 gotify/server
+
+# 在 Gotify Web UI 中创建应用，复制 token
+# 启动 bangumi-rss 时配置 webhook
+WEBHOOK_URL=http://localhost:7894/message?token=你的_TOKEN \
+WEBHOOK_FORMAT=gotify \
+./bangumi-rss
+```
+
+### 预设格式
+
+| 预设 | WEBHOOK_FORMAT | 预期 URL |
+|--------|---------------|----------|
+| [Gotify](https://gotify.net) | `gotify` | `http://host:port/message?token=xxx` |
+| [Bark](https://github.com/Finb/Bark) | `bark` | `http://host:port/your-key` |
+| [Server酱](https://sct.ftqq.com) | `serverchan` | `https://sctapi.ftqq.com/SCTxxx.send` |
+
+### 自定义模板
+
+使用 `WEBHOOK_TEMPLATE` 自定义 JSON/Form 模板，`WEBHOOK_ERROR_TEMPLATE` 自定义错误模板。可用占位符：
+
+- `{{title}}`、`{{message}}` — 通用
+- `{{anime_name}}`、`{{episode}}`、`{{season}}`、`{{library_path}}` — 下载事件
+- `{{name_cn}}`、`{{name_original}}`、`{{summary}}`、`{{rating}}`、`{{image_url}}`、`{{eps_count}}` — 下载事件（Bangumi 元数据）
+
+### 测试端点
+
+```bash
+curl -X POST http://localhost:7893/api/notify/test
+```
+
+发送一条正常通知和一条错误通知，用于验证 Webhook 配置。也可通过 Web UI 中的 **📢 测试通知** 按钮调用。
 
 ## 架构
 
