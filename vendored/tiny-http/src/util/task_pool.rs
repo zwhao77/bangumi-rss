@@ -227,7 +227,11 @@ mod tests {
 
         std::thread::sleep(Duration::from_millis(200));
         // Only task 1 and 2 should have run; task 3 was dropped.
-        assert_eq!(counter.load(Ordering::Relaxed), 2, "third task should be dropped");
+        assert_eq!(
+            counter.load(Ordering::Relaxed),
+            2,
+            "third task should be dropped"
+        );
     }
 
     #[test]
@@ -246,7 +250,10 @@ mod tests {
         pool.spawn(Box::new(move || f.store(true, Ordering::Relaxed)));
         std::thread::sleep(Duration::from_millis(50));
 
-        assert!(flag.load(Ordering::Relaxed), "pool should survive task panic");
+        assert!(
+            flag.load(Ordering::Relaxed),
+            "pool should survive task panic"
+        );
     }
 
     #[test]
@@ -255,17 +262,16 @@ mod tests {
         let barrier = Arc::new(std::sync::Barrier::new(5));
         for _ in 0..5 {
             let b = Arc::clone(&barrier);
-            pool.spawn(Box::new(move || { b.wait(); }));
+            pool.spawn(Box::new(move || {
+                b.wait();
+            }));
         }
         std::thread::sleep(Duration::from_millis(200));
         // After tasks complete, idle threads should die within 6s.
         std::thread::sleep(Duration::from_millis(6000));
         let active = pool.sharing.active_tasks.load(Ordering::Relaxed);
         // Should have settled back to at most MIN_THREADS.
-        assert!(
-            active <= MIN_THREADS,
-            "idle threads did not clean up"
-        );
+        assert!(active <= MIN_THREADS, "idle threads did not clean up");
     }
 
     #[test]

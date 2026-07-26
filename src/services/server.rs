@@ -40,7 +40,7 @@ enum AppResponse {
 
 // ── Route table (matchit) ──
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Route {
     Feeds,            // GET /api/feeds  | POST /api/feeds
     FeedUpdate,       // POST /api/feeds/update
@@ -167,6 +167,16 @@ pub fn start(
         let matched = router.at(path).ok();
         let route = matched.as_ref().map(|m| m.value);
 
+        // FeedPreview does external HTTP — offload to avoid blocking other requests.
+        if route == Some(&Route::FeedPreview) {
+            let body = body.clone();
+            std::thread::spawn(move || {
+                let resp = handle_preview(&body);
+                respond(request, resp, &url);
+            });
+            continue;
+        }
+
         let resp = match (route, method) {
             // ═══ / ═══
             (None, _) if path == "/" => handle_index(&*fs),
@@ -196,9 +206,6 @@ pub fn start(
                     .unwrap_or("");
                 handle_feed_delete(id, &tx)
             }
-
-            // ═══ /api/feeds/preview ═══
-            (Some(Route::FeedPreview), Method::Post) => handle_preview(&body),
 
             // ═══ /api/downloads ═══
             (Some(Route::Downloads), Method::Get) => handle_list_downloads(&tx),
