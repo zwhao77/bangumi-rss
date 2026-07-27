@@ -30,8 +30,24 @@ struct MockTask {
 impl MockDownloader {
     pub fn new() -> Self {
         Self {
-            tasks: Mutex::new(Vec::new()),
-            counter: Mutex::new(0),
+            tasks: Mutex::new(vec![
+                MockTask {
+                    infohash: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into(),
+                    name: "Test Anime S01E01".into(),
+                    completed: true,
+                },
+                MockTask {
+                    infohash: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".into(),
+                    name: "Test Anime S01E02".into(),
+                    completed: true,
+                },
+                MockTask {
+                    infohash: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".into(),
+                    name: "Test Anime S01E03".into(),
+                    completed: true,
+                },
+            ]),
+            counter: Mutex::new(3),
         }
     }
 }
@@ -164,27 +180,51 @@ mod mock_fs {
         pub fn new() -> Self {
             let mut files = HashMap::new();
 
-            // Build a proper AppState via its own Serialize impl so the format is guaranteed correct.
-            use crate::core::state::AppState;
+            use crate::core::state::{AppState, Feed};
             use crate::types::{AnimeIdentity, EpisodeKey, EpisodeRecord, RecordStatus};
-            let state = AppState {
-                feeds: HashMap::new(),
-                tracker: [(
-                    "DEADBEEF0123456789abcdef0123456789abcdef".into(),
+            use uuid::Uuid;
+
+            let feed_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+
+            let mut mk_rec = |infohash: &str, ep: u32| -> (String, EpisodeRecord) {
+                let path = format!("/mock/anime/Test Anime/S01/Test Anime S01E{ep:02}.mp4");
+                // Also pre-populate the file in the mock fs.
+                files.insert(PathBuf::from(&path), super::MINI_MP4.to_vec());
+                (
+                    infohash.into(),
                     EpisodeRecord {
-                        infohash: "DEADBEEF0123456789abcdef0123456789abcdef".into(),
+                        infohash: infohash.into(),
                         torrent_url: "https://example.com/test.torrent".into(),
-                        feed_id: uuid::Uuid::nil(),
+                        feed_id,
                         key: EpisodeKey {
-                            anime: AnimeIdentity { name: "Mock Anime".into(), season: 1 },
-                            episode: 1,
+                            anime: AnimeIdentity { name: "Test Anime".into(), season: 1 },
+                            episode: ep,
                         },
                         status: RecordStatus::InLibrary,
-                        library_path: Some("/mock/anime/Mock Anime/S01/Mock Anime S01E01.mp4".into()),
+                        library_path: Some(path),
+                    },
+                )
+            };
+
+            let state = AppState {
+                feeds: [(
+                    feed_id,
+                    Feed {
+                        id: feed_id,
+                        url: "https://example.com/feed.xml".into(),
+                        anime: AnimeIdentity { name: "Test Anime".into(), season: 1 },
+                        confirmed: true,
+                        bangumi_info: None,
                     },
                 )]
                 .into_iter()
                 .collect(),
+                tracker: [
+                    mk_rec("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", 1),
+                    mk_rec("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", 2),
+                    mk_rec("CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC", 3),
+                ]
+                .into(),
                 seen_urls: HashSet::new(),
                 cached_downloads: vec![],
                 download_dir: "/mock/downloads".into(),
@@ -194,11 +234,6 @@ mod mock_fs {
             files.insert(
                 PathBuf::from(".").join("state.json"),
                 serde_json::to_vec_pretty(&state).unwrap_or_default(),
-            );
-            // Also pre-populate the mock file at the library path so open_file serves it.
-            files.insert(
-                PathBuf::from("/mock/anime/Mock Anime/S01/Mock Anime S01E01.mp4"),
-                super::MINI_MP4.to_vec(),
             );
             Self {
                 dirs: std::sync::Mutex::new(HashSet::new()),
