@@ -257,7 +257,13 @@ impl TorrentDownloader for QbittorrentDownloader {
             .collect())
     }
 
-    fn rename_file(&self, infohash: &str, old_path: &str, new_name: &str) -> anyhow::Result<bool> {
+    fn rename_file(&self, infohash: &str, new_name: &str) -> anyhow::Result<bool> {
+        // Discover original filename from the torrent's file list.
+        let files = self.list_files(infohash)?;
+        let old_path = files
+            .first()
+            .map(|f| f.name.as_str())
+            .unwrap_or(new_name);
         self.post_form(
             "torrents/renameFile",
             &[

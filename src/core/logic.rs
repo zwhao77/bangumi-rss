@@ -214,11 +214,18 @@ fn reduce_downloader_notification(
                 .get(&infohash)
                 .map(|r| {
                     let name = &r.key.anime.name;
-                    log::warn!("download failed: {} (infohash={})", name, &infohash[..infohash.len().min(16)]);
+                    log::warn!(
+                        "download failed: {} (infohash={})",
+                        name,
+                        &infohash[..infohash.len().min(16)]
+                    );
                     name.clone()
                 })
                 .unwrap_or_else(|| {
-                    log::warn!("download failed: unknown (infohash={})", &infohash[..infohash.len().min(16)]);
+                    log::warn!(
+                        "download failed: unknown (infohash={})",
+                        &infohash[..infohash.len().min(16)]
+                    );
                     format!("unknown ({})", &infohash[..infohash.len().min(16)])
                 });
             let effects = vec![Effect::Notify(Notification::Failed(FailedData {

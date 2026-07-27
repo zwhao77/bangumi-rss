@@ -266,15 +266,12 @@ impl EffectExecutor {
             }
 
             // Try aria2 rename (best-effort).
-            match self
-                .downloader
-                .rename_file(infohash, &r.original_name, &r.target_name)
-            {
+            match self.downloader.rename_file(infohash, &r.target_name) {
                 Ok(true) => {
-                    log::debug!("aria2 renamed: '{}' → '{}'", r.original_name, r.target_name)
+                    log::info!("renamed: '{}' → '{}'", r.original_name, r.target_name)
                 }
-                Ok(false) => log::debug!("aria2 rename returned false for '{}'", r.original_name),
-                Err(e) => log::warn!("aria2 rename failed: {e}"),
+                Ok(false) => log::debug!("rename returned false for '{}'", r.original_name),
+                Err(e) => log::warn!("rename failed: {e}"),
             }
 
             // Notify logic: episode + path resolved, move complete.

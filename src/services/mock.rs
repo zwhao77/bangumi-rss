@@ -86,7 +86,7 @@ impl TorrentDownloader for MockDownloader {
         Ok(vec![TorrentFile { name }])
     }
 
-    fn rename_file(&self, infohash: &str, _old_path: &str, new_name: &str) -> anyhow::Result<bool> {
+    fn rename_file(&self, infohash: &str, new_name: &str) -> anyhow::Result<bool> {
         log::debug!("[mock-dl] rename: {infohash} → {new_name}");
         Ok(true)
     }

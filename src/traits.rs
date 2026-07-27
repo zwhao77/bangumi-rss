@@ -23,7 +23,7 @@ pub trait TorrentDownloader: Send + Sync {
     fn list_files(&self, infohash: &str) -> anyhow::Result<Vec<TorrentFile>>;
 
     /// Rename a file within a download task.
-    fn rename_file(&self, infohash: &str, old_path: &str, new_name: &str) -> anyhow::Result<bool>;
+    fn rename_file(&self, infohash: &str, new_name: &str) -> anyhow::Result<bool>;
 
     /// Poll for recently completed downloads.
     fn poll_completed(&self) -> anyhow::Result<Vec<CompletedDownload>>;

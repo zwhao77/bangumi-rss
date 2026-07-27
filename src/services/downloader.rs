@@ -196,7 +196,7 @@ impl TorrentDownloader for Aria2Downloader {
             .collect())
     }
 
-    fn rename_file(&self, infohash: &str, _old_path: &str, new_name: &str) -> anyhow::Result<bool> {
+    fn rename_file(&self, infohash: &str, new_name: &str) -> anyhow::Result<bool> {
         let gid = self.with_gid(infohash)?;
         let result = self.rpc(
             "changeOption",
