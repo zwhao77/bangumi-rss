@@ -92,6 +92,12 @@ pub enum Event {
 
     /// API: send test notifications to verify webhook config.
     NotifyTest,
+
+    /// API: query a single episode record by infohash (for file serving).
+    ApiGetEpisode {
+        infohash: String,
+        reply_tx: crossbeam_channel::Sender<Option<crate::types::EpisodeRecord>>,
+    },
 }
 
 #[derive(Debug)]

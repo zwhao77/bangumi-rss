@@ -59,6 +59,9 @@ pub fn reduce(state: &AppState, event: Event) -> (AppState, Vec<Effect>) {
         Event::DownloadsRefreshed { snapshots } => reduce_downloads_refreshed(state, snapshots),
         Event::RssFetchFailed { feed_id, error } => reduce_rss_fetch_failed(state, feed_id, error),
         Event::NotifyTest => reduce_notify_test(state),
+        Event::ApiGetEpisode { infohash, reply_tx } => {
+            reduce_api_get_episode(state, infohash, reply_tx)
+        }
     }
 }
 
@@ -455,6 +458,17 @@ fn reduce_downloads_refreshed(
 
     let new_state = state.clone().with_downloads_cached(downloads);
     (new_state, vec![])
+}
+
+/// API: query a single episode record by infohash (used for file serving).
+fn reduce_api_get_episode(
+    state: &AppState,
+    infohash: String,
+    reply_tx: crossbeam_channel::Sender<Option<crate::types::EpisodeRecord>>,
+) -> (AppState, Vec<Effect>) {
+    let record = state.tracker.get(&infohash).cloned();
+    let _ = reply_tx.send(record);
+    (state.clone(), vec![])
 }
 
 #[cfg(test)]
