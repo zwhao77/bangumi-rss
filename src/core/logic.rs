@@ -7,8 +7,9 @@ use crate::core::effect::Effect;
 use crate::core::event::{DownloadStatus, Event};
 use crate::core::state::{AppState, Feed};
 use crate::types::{
-    AnimeIdentity, ApiResponse, BangumiInfo, DownloadInfo, DownloadSnapshot, EpisodeDownloadedData,
+    AnimeIdentity, ApiResult, BangumiInfo, DownloadInfo, DownloadSnapshot, EpisodeDownloadedData,
     EpisodeKey, EpisodeRecord, FailedData, FeedInfo, Notification, RecordStatus, RssItem,
+    http_code,
 };
 use uuid::Uuid;
 
@@ -282,20 +283,22 @@ fn reduce_user_confirm(
     name: String,
     season: u8,
     bangumi_info: Option<BangumiInfo>,
-    reply_tx: crossbeam_channel::Sender<ApiResponse>,
+    reply_tx: crossbeam_channel::Sender<ApiResult<String>>,
 ) -> (AppState, Vec<Effect>) {
     let exists = state.feeds.contains_key(&feed_id);
     let new_state = state
         .clone()
         .with_feed_confirmed(feed_id, name, season, bangumi_info);
-    let _ = reply_tx.send(ApiResponse {
-        success: exists,
-        message: if exists {
-            "updated".into()
-        } else {
-            format!("feed {feed_id} not found")
-        },
-    });
+    if exists {
+        let _ = reply_tx.send(ApiResult::OK {
+            value: "updated".into(),
+        });
+    } else {
+        let _ = reply_tx.send(ApiResult::Err {
+            code: http_code::NOT_FOUND,
+            message: format!("feed {feed_id} not found"),
+        });
+    }
     (new_state, vec![])
 }
 
@@ -307,11 +310,11 @@ fn reduce_confirm_feed(
     name: String,
     season: u8,
     bangumi_info: Option<BangumiInfo>,
-    reply_tx: crossbeam_channel::Sender<ApiResponse>,
+    reply_tx: crossbeam_channel::Sender<ApiResult<String>>,
 ) -> (AppState, Vec<Effect>) {
     if name.trim().is_empty() {
-        let _ = reply_tx.send(ApiResponse {
-            success: false,
+        let _ = reply_tx.send(ApiResult::Err {
+            code: http_code::BAD_REQUEST,
             message: "name cannot be empty".into(),
         });
         return (state.clone(), vec![]);
@@ -325,9 +328,8 @@ fn reduce_confirm_feed(
         bangumi_info,
     };
 
-    let _ = reply_tx.send(ApiResponse {
-        success: true,
-        message: feed_id.to_string(),
+    let _ = reply_tx.send(ApiResult::OK {
+        value: feed_id.to_string(),
     });
 
     let new_state = state.clone().with_feed_added(feed);
@@ -337,7 +339,7 @@ fn reduce_confirm_feed(
 /// API: list all subscribed feeds.
 fn reduce_api_list_feeds(
     state: &AppState,
-    reply_tx: crossbeam_channel::Sender<Vec<FeedInfo>>,
+    reply_tx: crossbeam_channel::Sender<ApiResult<Vec<FeedInfo>>>,
 ) -> (AppState, Vec<Effect>) {
     let feeds: Vec<FeedInfo> = state
         .feeds
@@ -350,7 +352,7 @@ fn reduce_api_list_feeds(
             bangumi_info: f.bangumi_info.clone(),
         })
         .collect();
-    let _ = reply_tx.send(feeds);
+    let _ = reply_tx.send(ApiResult::OK { value: feeds });
     (state.clone(), vec![])
 }
 
@@ -359,17 +361,18 @@ fn reduce_api_list_feeds(
 fn reduce_api_remove_feed(
     state: &AppState,
     feed_id: Uuid,
-    reply_tx: crossbeam_channel::Sender<ApiResponse>,
+    reply_tx: crossbeam_channel::Sender<ApiResult<String>>,
 ) -> (AppState, Vec<Effect>) {
-    let msg = if state.feeds.contains_key(&feed_id) {
-        format!("feed {feed_id} removed")
-    } else {
-        format!("feed {feed_id} not found")
-    };
+    if !state.feeds.contains_key(&feed_id) {
+        let _ = reply_tx.send(ApiResult::Err {
+            code: http_code::NOT_FOUND,
+            message: format!("feed {feed_id} not found"),
+        });
+        return (state.clone(), vec![]);
+    }
     let new_state = state.clone().with_feed_removed(feed_id);
-    let _ = reply_tx.send(ApiResponse {
-        success: true,
-        message: msg,
+    let _ = reply_tx.send(ApiResult::OK {
+        value: format!("feed {feed_id} removed"),
     });
     (new_state, vec![])
 }
@@ -377,9 +380,11 @@ fn reduce_api_remove_feed(
 /// API: return cached download list immediately.
 fn reduce_api_list_downloads(
     state: &AppState,
-    reply_tx: crossbeam_channel::Sender<Vec<DownloadInfo>>,
+    reply_tx: crossbeam_channel::Sender<ApiResult<Vec<DownloadInfo>>>,
 ) -> (AppState, Vec<Effect>) {
-    let _ = reply_tx.send(state.cached_downloads.clone());
+    let _ = reply_tx.send(ApiResult::OK {
+        value: state.cached_downloads.clone(),
+    });
     (state.clone(), vec![])
 }
 
@@ -464,10 +469,21 @@ fn reduce_downloads_refreshed(
 fn reduce_api_get_episode(
     state: &AppState,
     infohash: String,
-    reply_tx: crossbeam_channel::Sender<Option<crate::types::EpisodeRecord>>,
+    reply_tx: crossbeam_channel::Sender<ApiResult<crate::types::EpisodeRecord>>,
 ) -> (AppState, Vec<Effect>) {
-    let record = state.tracker.get(&infohash).cloned();
-    let _ = reply_tx.send(record);
+    match state.tracker.get(&infohash) {
+        Some(record) => {
+            let _ = reply_tx.send(ApiResult::OK {
+                value: record.clone(),
+            });
+        }
+        None => {
+            let _ = reply_tx.send(ApiResult::Err {
+                code: http_code::NOT_FOUND,
+                message: "not found".into(),
+            });
+        }
+    }
     (state.clone(), vec![])
 }
 
@@ -531,7 +547,7 @@ mod tests {
         assert_eq!(feed.anime.season, 2);
         assert!(feed.confirmed);
         let resp = reply_rx.try_recv().unwrap();
-        assert!(resp.success);
+        assert!(matches!(resp, ApiResult::OK { .. }));
     }
 
     #[test]

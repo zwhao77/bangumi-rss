@@ -5,18 +5,19 @@
 //! effects go through the injected traits.
 
 use crossbeam_channel::{RecvTimeoutError, Sender};
-use rouille::{Request, Response, ResponseBody};
+use rouille::{Request, Response};
 use std::path::Path;
 use std::time::Duration;
 
 use crate::core::event::Event;
+use crate::services::server::range::{resolve_range, serve_file_range};
 use crate::services::server::utils::{is_valid_rss_url, json_response};
 use crate::traits::{FileOps, TorrentDownloader};
-use crate::types::{ApiResponse, BangumiInfo};
+use crate::types::{ApiResult, BangumiInfo, http_code};
 
 use crate::utils::preview;
 
-enum ApiError {
+enum HandlerError {
     BadRequest(String), // 400
     NotFound(String),   // 404
     Timeout,            // 503 — logic thread unresponsive
@@ -27,22 +28,33 @@ enum ApiError {
     },
 }
 
-impl From<ApiError> for Response {
-    fn from(e: ApiError) -> Self {
+impl From<HandlerError> for Response {
+    fn from(e: HandlerError) -> Self {
         let (code, msg) = match &e {
-            ApiError::BadRequest(m) => (400, m.clone()),
-            ApiError::NotFound(m) => (404, m.clone()),
-            ApiError::Timeout => (503, "server busy".into()),
-            ApiError::ChannelClosed => {
+            HandlerError::BadRequest(m) => (http_code::BAD_REQUEST, m.clone()),
+            HandlerError::NotFound(m) => (http_code::NOT_FOUND, m.clone()),
+            HandlerError::Timeout => (http_code::SERVICE_UNAVAILABLE, "server busy".into()),
+            HandlerError::ChannelClosed => {
                 log::error!("logic thread channel closed");
-                (503, "server busy".into())
+                (http_code::SERVICE_UNAVAILABLE, "server busy".into())
             }
-            ApiError::Internal { client, detail } => {
+            HandlerError::Internal { client, detail } => {
                 log::error!("internal error: {detail}");
-                (500, client.clone())
+                (http_code::INTERNAL, client.clone())
             }
         };
         json_response(code, &msg)
+    }
+}
+
+impl<T: serde::Serialize> From<ApiResult<T>> for Response {
+    fn from(result: ApiResult<T>) -> Self {
+        let body = serde_json::to_string(&result).unwrap_or_default();
+        let status = match &result {
+            ApiResult::OK { .. } => 200,
+            ApiResult::Err { code, .. } => *code,
+        };
+        Response::from_data("application/json", body).with_status_code(status)
     }
 }
 
@@ -72,48 +84,34 @@ fn mime_type(path: &str) -> &'static str {
 // ── Channel abstractions ──
 
 /// Query the logic thread and wait for a reply (up to 10 s).
-/// - Channel disconnected → `ApiError::ChannelClosed`
-/// - Logic thread unresponsive → `ApiError::Timeout`
-/// - No reply received → `ApiError::Internal("no reply")`
+/// - Channel disconnected → `HandlerError::ChannelClosed`
+/// - Logic thread unresponsive → `HandlerError::Timeout`
+/// - No reply received → `HandlerError::Internal("no reply")`
 fn query_result<T>(
     tx: &Sender<Event>,
     event: impl FnOnce(Sender<T>) -> Event,
-) -> Result<T, ApiError> {
+) -> Result<T, HandlerError> {
     let (reply_tx, reply_rx) = crossbeam_channel::bounded(1);
     tx.send(event(reply_tx))
-        .map_err(|_| ApiError::ChannelClosed)?;
+        .map_err(|_| HandlerError::ChannelClosed)?;
     match reply_rx.recv_timeout(Duration::from_secs(10)) {
         Ok(val) => Ok(val),
-        Err(RecvTimeoutError::Timeout) => Err(ApiError::Timeout),
-        Err(RecvTimeoutError::Disconnected) => Err(ApiError::Internal {
+        Err(RecvTimeoutError::Timeout) => Err(HandlerError::Timeout),
+        Err(RecvTimeoutError::Disconnected) => Err(HandlerError::Internal {
             client: "logic thread error".into(),
             detail: "logic thread dropped reply channel without sending".into(),
         }),
     }
 }
 
-/// Query the logic thread and serialize the reply as JSON.
-/// On timeout / channel error → 503.
-fn query_json<T: serde::Serialize>(
+/// Query the logic thread for an `ApiResult<T>` — uses `Err.code` as HTTP status.
+/// On channel timeout / disconnect → 503.
+fn query_api_result<T: serde::Serialize>(
     tx: &Sender<Event>,
-    event: impl FnOnce(Sender<T>) -> Event,
+    event: impl FnOnce(Sender<ApiResult<T>>) -> Event,
 ) -> Response {
     match query_result(tx, event) {
-        Ok(data) => Response::from_data(
-            "application/json",
-            serde_json::to_string(&data).unwrap_or_default(),
-        ),
-        Err(e) => e.into(),
-    }
-}
-
-/// Query the logic thread expecting an `ApiResponse`. On timeout → 503.
-fn query_api(tx: &Sender<Event>, event: impl FnOnce(Sender<ApiResponse>) -> Event) -> Response {
-    match query_result(tx, event) {
-        Ok(resp) => Response::from_data(
-            "application/json",
-            serde_json::to_string(&resp).unwrap_or_default(),
-        ),
+        Ok(result) => result.into(),
         Err(e) => e.into(),
     }
 }
@@ -126,7 +124,7 @@ fn fire_event(tx: &Sender<Event>, event: Event, msg: &str) -> Response {
             "application/json",
             serde_json::json!({"success": true, "message": msg}).to_string(),
         ),
-        Err(_) => ApiError::ChannelClosed.into(),
+        Err(_) => HandlerError::ChannelClosed.into(),
     }
 }
 
@@ -149,13 +147,17 @@ pub fn handle_style_css(fs: &dyn FileOps) -> Response {
 pub fn handle_preview(body: &str) -> Response {
     let url = body.trim();
     if !is_valid_rss_url(url) {
-        return ApiError::BadRequest("invalid URL".into()).into();
+        return ApiResult::<crate::types::FeedPreview>::Err {
+            code: http_code::BAD_REQUEST,
+            message: "invalid URL".into(),
+        }
+        .into();
     }
     match preview::fetch_feed_preview(url) {
-        Ok(preview) => Response::json(&serde_json::to_string(&preview).unwrap_or_default()),
-        Err(e) => ApiError::Internal {
-            client: "preview failed".into(),
-            detail: format!("preview failed: {e}"),
+        Ok(preview) => ApiResult::<crate::types::FeedPreview>::OK { value: preview }.into(),
+        Err(e) => ApiResult::<crate::types::FeedPreview>::Err {
+            code: http_code::INTERNAL,
+            message: format!("preview failed: {e}"),
         }
         .into(),
     }
@@ -165,7 +167,7 @@ pub fn handle_feed_create(body: &str, tx: &Sender<Event>) -> Response {
     let confirm: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
     let url = confirm["url"].as_str().unwrap_or("").to_string();
     if !is_valid_rss_url(&url) {
-        return ApiError::BadRequest("invalid URL".into()).into();
+        return HandlerError::BadRequest("invalid URL".into()).into();
     }
     let name = confirm["name"].as_str().unwrap_or("").to_string();
     let season = confirm["season"].as_u64().unwrap_or(1) as u8;
@@ -173,7 +175,7 @@ pub fn handle_feed_create(body: &str, tx: &Sender<Event>) -> Response {
         .get("bangumi_info")
         .and_then(|v| serde_json::from_value(v.clone()).ok());
 
-    query_api(tx, |reply_tx| Event::ConfirmFeed {
+    query_api_result(tx, |reply_tx| Event::ConfirmFeed {
         url,
         name,
         season,
@@ -185,7 +187,7 @@ pub fn handle_feed_create(body: &str, tx: &Sender<Event>) -> Response {
 pub fn handle_feed_update(id: &str, body: &str, tx: &Sender<Event>) -> Response {
     let feed_id = match uuid::Uuid::parse_str(id) {
         Ok(id) => id,
-        Err(_) => return ApiError::BadRequest("invalid id".into()).into(),
+        Err(_) => return HandlerError::BadRequest("invalid id".into()).into(),
     };
     let update: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
     let name = update["name"].as_str().unwrap_or("").to_string();
@@ -194,39 +196,29 @@ pub fn handle_feed_update(id: &str, body: &str, tx: &Sender<Event>) -> Response 
         .get("bangumi_info")
         .and_then(|v| serde_json::from_value(v.clone()).ok());
 
-    let result = match query_result(tx, |reply_tx| Event::UserConfirm {
+    query_api_result(tx, |reply_tx| Event::UserConfirm {
         feed_id,
         name,
         season,
         bangumi_info,
         reply_tx,
-    }) {
-        Ok(api_resp) => api_resp,
-        Err(e) => return e.into(),
-    };
-
-    let status = if result.success { 200 } else { 404 };
-    Response::from_data(
-        "application/json",
-        serde_json::to_string(&result).unwrap_or_default(),
-    )
-    .with_status_code(status)
+    })
 }
 
 pub fn handle_feed_delete(id: &str, tx: &Sender<Event>) -> Response {
     let feed_id = match uuid::Uuid::parse_str(id) {
         Ok(id) => id,
-        Err(_) => return ApiError::BadRequest("invalid id".into()).into(),
+        Err(_) => return HandlerError::BadRequest("invalid id".into()).into(),
     };
-    query_api(tx, |reply_tx| Event::ApiRemoveFeed { feed_id, reply_tx })
+    query_api_result(tx, |reply_tx| Event::ApiRemoveFeed { feed_id, reply_tx })
 }
 
 pub fn handle_list_feeds(tx: &Sender<Event>) -> Response {
-    query_json(tx, |reply_tx| Event::ApiListFeeds { reply_tx })
+    query_api_result(tx, |reply_tx| Event::ApiListFeeds { reply_tx })
 }
 
 pub fn handle_list_downloads(tx: &Sender<Event>) -> Response {
-    query_json(tx, |reply_tx| Event::ApiListDownloads { reply_tx })
+    query_api_result(tx, |reply_tx| Event::ApiListDownloads { reply_tx })
 }
 
 pub fn handle_refresh(tx: &Sender<Event>) -> Response {
@@ -244,15 +236,16 @@ pub fn handle_poll(tx: &Sender<Event>) -> Response {
 pub fn handle_bangumi_subject(id_str: &str) -> Response {
     let id: u32 = match id_str.parse() {
         Ok(n) => n,
-        Err(_) => return ApiError::BadRequest("invalid id".into()).into(),
+        Err(_) => return HandlerError::BadRequest("invalid id".into()).into(),
     };
     match crate::services::bangumi::detail(id) {
-        Ok(Some(info)) => Response::from_data(
-            "application/json",
-            serde_json::json!({"success":true,"bangumi_info":info}).to_string(),
-        ),
-        Ok(None) => ApiError::NotFound("not found".into()).into(),
-        Err(e) => ApiError::Internal {
+        Ok(Some(info)) => ApiResult::OK { value: info }.into(),
+        Ok(None) => ApiResult::<BangumiInfo>::Err {
+            code: http_code::NOT_FOUND,
+            message: "not found".into(),
+        }
+        .into(),
+        Err(e) => HandlerError::Internal {
             client: "upstream error".into(),
             detail: format!("bangumi detail failed: {e}"),
         }
@@ -263,42 +256,52 @@ pub fn handle_bangumi_subject(id_str: &str) -> Response {
 pub fn handle_bangumi_search(request: &Request) -> Response {
     let name = match request.get_param("name") {
         Some(n) if !n.is_empty() => n,
-        _ => return ApiError::BadRequest("missing name".into()).into(),
+        _ => return HandlerError::BadRequest("missing name".into()).into(),
     };
 
-    let result = match crate::services::bangumi::search(&name) {
+    let result: ApiResult<BangumiInfo> = match crate::services::bangumi::search(&name) {
         Ok(Some(id)) => {
             log::info!("Bangumi search '{name}' → #{id}");
             match crate::services::bangumi::detail(id) {
-                Ok(Some(info)) => {
-                    serde_json::json!({ "success": true, "bangumi_info": info })
-                }
-                Ok(None) => serde_json::json!({ "success": false, "message": "no detail" }),
+                Ok(Some(info)) => ApiResult::OK { value: info },
+                Ok(None) => ApiResult::Err {
+                    code: http_code::NOT_FOUND,
+                    message: "no detail".into(),
+                },
                 Err(e) => {
                     log::error!("bangumi detail failed: {e}");
-                    serde_json::json!({ "success": false, "message": "upstream error" })
+                    ApiResult::Err {
+                        code: http_code::INTERNAL,
+                        message: "upstream error".into(),
+                    }
                 }
             }
         }
-        Ok(None) => serde_json::json!({ "success": false, "message": "not found" }),
+        Ok(None) => ApiResult::Err {
+            code: http_code::NOT_FOUND,
+            message: "not found".into(),
+        },
         Err(e) => {
             log::error!("bangumi search failed: {e}");
-            serde_json::json!({ "success": false, "message": "upstream error" })
+            ApiResult::Err {
+                code: http_code::INTERNAL,
+                message: "upstream error".into(),
+            }
         }
     };
-    Response::from_data("application/json", result.to_string())
+    result.into()
 }
 
 pub fn handle_health(dl: &dyn TorrentDownloader) -> Response {
     match dl.check_connection() {
-        Ok(()) => Response::from_data(
-            "application/json",
-            r#"{"success":true,"downloader":"connected"}"#,
-        ),
+        Ok(()) => ApiResult::OK { value: () }.into(),
         Err(e) => {
             log::error!("health check failed: {e}");
-            let msg = serde_json::json!({"success":false,"downloader":"error","message":"downloader unavailable"});
-            Response::from_data("application/json", msg.to_string()).with_status_code(503)
+            ApiResult::<()>::Err {
+                code: http_code::SERVICE_UNAVAILABLE,
+                message: "downloader unavailable".into(),
+            }
+            .into()
         }
     }
 }
@@ -313,24 +316,31 @@ pub fn handle_file_stream(
     fs: &dyn FileOps,
     request: &Request,
 ) -> Response {
-    let record = match query_result(tx, |reply_tx| Event::ApiGetEpisode {
-        infohash: infohash.to_string(),
-        reply_tx,
-    }) {
-        Ok(Some(r)) => r,
-        Ok(None) => return ApiError::NotFound("not found".into()).into(),
-        Err(e) => return e.into(),
+    let result: ApiResult<crate::types::EpisodeRecord> =
+        match query_result(tx, |reply_tx| Event::ApiGetEpisode {
+            infohash: infohash.to_string(),
+            reply_tx,
+        }) {
+            Ok(r) => r,
+            Err(e) => return e.into(),
+        };
+
+    let record = match result {
+        ApiResult::OK { value } => value,
+        ApiResult::Err { code, message } => {
+            return json_response(code, &message);
+        }
     };
 
     let file_path = match &record.library_path {
         Some(p) if !p.is_empty() => p.clone(),
-        _ => return ApiError::NotFound("file not yet available".into()).into(),
+        _ => return HandlerError::NotFound("file not yet available".into()).into(),
     };
 
     // Path traversal protection
     if !Path::new(&file_path).is_absolute() || file_path.contains("..") {
         log::error!("path traversal attempt: {file_path}");
-        return ApiError::NotFound("file not found".into()).into();
+        return HandlerError::NotFound("file not found".into()).into();
     }
 
     let stream = match fs.open_file(Path::new(&file_path)) {
@@ -339,12 +349,12 @@ pub fn handle_file_stream(
             log::error!("failed to open {file_path}: {e}");
             let api_err = match e.downcast_ref::<std::io::Error>() {
                 Some(ioe) if ioe.kind() == std::io::ErrorKind::NotFound => {
-                    ApiError::NotFound("file not found".into())
+                    HandlerError::NotFound("file not found".into())
                 }
                 Some(ioe) if ioe.kind() == std::io::ErrorKind::PermissionDenied => {
-                    ApiError::NotFound("file not found".into())
+                    HandlerError::NotFound("file not found".into())
                 }
-                _ => ApiError::Internal {
+                _ => HandlerError::Internal {
                     client: "file unavailable".into(),
                     detail: format!("file unavailable: {e}"),
                 },
@@ -356,134 +366,12 @@ pub fn handle_file_stream(
     let content_type = mime_type(&file_path);
     let file_size = stream.size();
 
-    serve_file_range(stream, file_size, content_type, request)
-}
-
-// ── File serving with Range ──
-
-fn serve_file_range(
-    stream: crate::types::FileStream,
-    file_size: u64,
-    content_type: &'static str,
-    request: &Request,
-) -> Response {
-    if file_size == 0 {
-        return Response {
-            status_code: 200,
-            headers: vec![
-                ("Content-Type".into(), content_type.into()),
-                ("Accept-Ranges".into(), "bytes".into()),
-            ],
-            data: ResponseBody::empty(),
-            upgrade: None,
-        };
-    }
-
-    let range_header = match request.header("Range") {
-        Some(h) => h,
-        None => {
-            let reader = match stream.into_range(0, file_size) {
-                Ok(r) => r,
-                Err(e) => {
-                    return ApiError::Internal {
-                        client: "internal server error".into(),
-                        detail: format!("seek failed: {e}"),
-                    }
-                    .into();
-                }
-            };
-            log::info!("→ 200 OK ({content_type}, {file_size} bytes)");
-            return Response {
-                status_code: 200,
-                headers: vec![
-                    ("Content-Type".into(), content_type.into()),
-                    ("Accept-Ranges".into(), "bytes".into()),
-                ],
-                data: ResponseBody::from_reader_and_size(reader, file_size as usize),
-                upgrade: None,
-            };
-        }
-    };
-
-    let range_val = match range_header.strip_prefix("bytes=") {
-        Some(v) => v.trim(),
-        None => return build_416(file_size),
-    };
-    if range_val.contains(',') {
-        return build_416(file_size);
-    }
-
-    let (start, end) = match parse_range(range_val, file_size) {
-        Some(r) => r,
-        None => return build_416(file_size),
-    };
-
-    let length = end - start + 1;
-    let content_range = format!("bytes {start}-{end}/{file_size}");
-
-    let reader = match stream.into_range(start, length) {
+    // Parse Range header → serve requested range or full file.
+    let range = match resolve_range(request, file_size) {
         Ok(r) => r,
-        Err(e) => {
-            return ApiError::Internal {
-                client: "internal server error".into(),
-                detail: format!("seek failed: {e}"),
-            }
-            .into();
-        }
+        Err(resp) => return resp,
     };
-
-    log::info!("→ 206 bytes {start}-{end}/{file_size} ({content_type})");
-
-    Response {
-        status_code: 206,
-        headers: vec![
-            ("Content-Type".into(), content_type.into()),
-            ("Content-Range".into(), content_range.into()),
-            ("Accept-Ranges".into(), "bytes".into()),
-        ],
-        data: ResponseBody::from_reader_and_size(reader, length as usize),
-        upgrade: None,
-    }
-}
-
-fn build_416(file_size: u64) -> Response {
-    Response {
-        status_code: 416,
-        headers: vec![(
-            "Content-Range".into(),
-            format!("bytes */{file_size}").into(),
-        )],
-        data: ResponseBody::empty(),
-        upgrade: None,
-    }
-}
-
-fn parse_range(range: &str, file_size: u64) -> Option<(u64, u64)> {
-    if let Some(suffix) = range.strip_prefix('-') {
-        let n: u64 = suffix.parse().ok()?;
-        if n == 0 {
-            return None;
-        }
-        let start = file_size.saturating_sub(n);
-        let end = file_size - 1;
-        return Some((start, end));
-    }
-
-    let (start_str, end_str) = range.split_once('-')?;
-    let start: u64 = start_str.parse().ok()?;
-    if start >= file_size {
-        return None;
-    }
-    let end: u64 = if end_str.is_empty() {
-        file_size - 1
-    } else {
-        let e: u64 = end_str.parse().ok()?;
-        if e >= file_size || e < start {
-            return None;
-        }
-        e
-    };
-    Some((start, end))
+    serve_file_range(stream, file_size, content_type, range)
 }
 
 // ── Tests ──
@@ -491,29 +379,6 @@ fn parse_range(range: &str, file_size: u64) -> Option<(u64, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Read;
-
-    #[test]
-    fn test_parse_range_standard() {
-        assert_eq!(parse_range("0-4", 100), Some((0, 4)));
-        assert_eq!(parse_range("50-", 100), Some((50, 99)));
-        assert_eq!(parse_range("0-99", 100), Some((0, 99)));
-    }
-
-    #[test]
-    fn test_parse_range_suffix() {
-        assert_eq!(parse_range("-10", 100), Some((90, 99)));
-        assert_eq!(parse_range("-1", 100), Some((99, 99)));
-    }
-
-    #[test]
-    fn test_parse_range_invalid() {
-        assert_eq!(parse_range("100-", 100), None);
-        assert_eq!(parse_range("0-100", 100), None);
-        assert_eq!(parse_range("-0", 100), None);
-        assert_eq!(parse_range("abc", 100), None);
-        assert_eq!(parse_range("", 100), None);
-    }
 
     #[test]
     fn test_mime_type() {
@@ -522,77 +387,6 @@ mod tests {
         assert_eq!(mime_type("song.mp3"), "audio/mpeg");
         assert_eq!(mime_type("unknown.xyz"), "application/octet-stream");
         assert_eq!(mime_type("no_ext"), "application/octet-stream");
-    }
-
-    fn range_request(range: Option<&str>) -> Request {
-        let headers = range
-            .map(|h| vec![("Range".into(), h.into())])
-            .unwrap_or_default();
-        Request::fake_http("GET", "/file", headers, vec![])
-    }
-
-    fn read_body(resp: Response) -> Vec<u8> {
-        let (mut reader, _) = resp.data.into_reader_and_size();
-        let mut buf = Vec::new();
-        reader.read_to_end(&mut buf).unwrap();
-        buf
-    }
-
-    #[test]
-    fn serve_full_file_no_range() {
-        let data = b"hello world".to_vec();
-        let stream = crate::types::FileStream::new(std::io::Cursor::new(data), 11);
-        let resp = serve_file_range(stream, 11, "text/plain", &range_request(None));
-        assert_eq!(resp.status_code, 200);
-        assert!(resp.headers.iter().any(|(k, _)| k == "Accept-Ranges"));
-    }
-
-    #[test]
-    fn serve_range_206() {
-        let data = b"hello world".to_vec();
-        let stream = crate::types::FileStream::new(std::io::Cursor::new(data), 11);
-        let resp = serve_file_range(stream, 11, "text/plain", &range_request(Some("bytes=0-4")));
-        assert_eq!(resp.status_code, 206);
-        assert!(
-            resp.headers
-                .iter()
-                .any(|(k, v)| k == "Content-Range" && v == "bytes 0-4/11")
-        );
-    }
-
-    #[test]
-    fn serve_range_416() {
-        let data = b"hello world".to_vec();
-        let stream = crate::types::FileStream::new(std::io::Cursor::new(data), 11);
-        let resp = serve_file_range(
-            stream,
-            11,
-            "text/plain",
-            &range_request(Some("bytes=20-30")),
-        );
-        assert_eq!(resp.status_code, 416);
-        assert!(
-            resp.headers
-                .iter()
-                .any(|(k, v)| k == "Content-Range" && v == "bytes */11")
-        );
-    }
-
-    #[test]
-    fn serve_range_data_integrity() {
-        let content = b"0123456789ABCDEF";
-        let stream = crate::types::FileStream::new(std::io::Cursor::new(content.to_vec()), 16);
-        let resp = serve_file_range(stream, 16, "text/plain", &range_request(Some("bytes=0-3")));
-        assert_eq!(resp.status_code, 206);
-        let body = read_body(resp);
-        assert_eq!(body, b"0123");
-    }
-
-    #[test]
-    fn serve_empty_file() {
-        let stream = crate::types::FileStream::new(std::io::Cursor::new(vec![]), 0);
-        let resp = serve_file_range(stream, 0, "text/plain", &range_request(None));
-        assert_eq!(resp.status_code, 200);
     }
 
     #[test]
@@ -672,17 +466,6 @@ mod tests {
     }
 
     #[test]
-    fn test_build_416() {
-        let resp = build_416(100);
-        assert_eq!(resp.status_code, 416);
-        assert!(
-            resp.headers
-                .iter()
-                .any(|(k, v)| k == "Content-Range" && v == "bytes */100")
-        );
-    }
-
-    #[test]
     fn test_handle_file_stream_unknown_infohash() {
         struct EmptyFs;
         impl FileOps for EmptyFs {
@@ -704,7 +487,7 @@ mod tests {
         }
         let (tx, rx) = crossbeam_channel::bounded::<Event>(1);
         drop(rx);
-        let req = range_request(None);
+        let req = Request::fake_http("GET", "/file", vec![], vec![]);
         let resp = handle_file_stream("unknown_hash", &tx, &EmptyFs, &req);
         assert_eq!(resp.status_code, 503);
     }

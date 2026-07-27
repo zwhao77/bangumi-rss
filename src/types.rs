@@ -2,16 +2,46 @@
 //!
 //! These are pure data, serializable, with no dependency on I/O or services.
 
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 // ── API & Service-boundary types ──
 
-/// General-purpose API response.
-#[derive(Debug, serde::Serialize)]
-pub struct ApiResponse {
-    pub success: bool,
-    pub message: String,
+/// 泛型 API 结果。序列化为:
+///   OK → {"success":true, "data":T, "message":"..."}
+///   Err → {"success":false, "code":u16, "message":"..."}
+pub enum ApiResult<T> {
+    OK { value: T },
+    Err { code: u16, message: String },
+}
+
+/// HTTP status codes used in `ApiResult::Err.code` and `ApiError`.
+pub mod http_code {
+    pub const BAD_REQUEST: u16 = 400;
+    pub const NOT_FOUND: u16 = 404;
+    pub const INTERNAL: u16 = 500;
+    pub const SERVICE_UNAVAILABLE: u16 = 503;
+}
+
+impl<T: Serialize> Serialize for ApiResult<T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            ApiResult::OK { value } => {
+                let mut s = serializer.serialize_struct("ApiResult", 2)?;
+                s.serialize_field("success", &true)?;
+                s.serialize_field("data", value)?;
+                s.end()
+            }
+            ApiResult::Err { code, message } => {
+                let mut s = serializer.serialize_struct("ApiResult", 3)?;
+                s.serialize_field("success", &false)?;
+                s.serialize_field("code", code)?;
+                s.serialize_field("message", message)?;
+                s.end()
+            }
+        }
+    }
 }
 
 /// Feed list API DTO (returned to the web UI).

@@ -197,7 +197,10 @@ mod mock_fs {
                         torrent_url: "https://example.com/test.torrent".into(),
                         feed_id,
                         key: EpisodeKey {
-                            anime: AnimeIdentity { name: "Test Anime".into(), season: 1 },
+                            anime: AnimeIdentity {
+                                name: "Test Anime".into(),
+                                season: 1,
+                            },
                             episode: ep,
                         },
                         status: RecordStatus::InLibrary,
@@ -212,7 +215,10 @@ mod mock_fs {
                     Feed {
                         id: feed_id,
                         url: "https://example.com/feed.xml".into(),
-                        anime: AnimeIdentity { name: "Test Anime".into(), season: 1 },
+                        anime: AnimeIdentity {
+                            name: "Test Anime".into(),
+                            season: 1,
+                        },
                         confirmed: true,
                         bangumi_info: None,
                     },

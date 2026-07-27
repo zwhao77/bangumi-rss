@@ -35,14 +35,17 @@
     <div id="result" class="card" style="display:none"></div>
 
     <h3 style="margin-top:1.5em;display:flex;justify-content:space-between;align-items:center">已订阅
-        <button onclick="loadFeeds()" class="btn btn-sm" style="padding:4px;line-height:0"><svg
-                xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white"
-                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 2v6h-6" />
-                <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-                <path d="M3 22v-6h6" />
-                <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-            </svg></button>
+        <div style="display:flex;gap:4px">
+            <button onclick="refreshRss()" class="btn btn-sm" style="padding:4px 8px" title="强制刷新所有订阅的 RSS">🔄
+                RSS</button>
+            <button onclick="loadFeeds()" class="btn btn-sm" style="padding:4px;line-height:0"><svg
+                    xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 2v6h-6" />
+                    <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+                    <path d="M3 22v-6h6" />
+                    <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+                </svg></button>
     </h3>
     <div id="feeds"></div>
 
@@ -293,11 +296,11 @@
             document.getElementById('result').style.display = 'none';
             try {
                 const resp = await fetch('/api/feeds/preview', { method: 'POST', body: url });
-                if (!resp.ok) {
-                    const err = await resp.json().catch(() => ({}));
-                    throw new Error(err.message || `HTTP ${resp.status}`);
+                const result = await resp.json();
+                if (!result.success) {
+                    throw new Error(result.message || `HTTP ${resp.status}`);
                 }
-                const data = await resp.json();
+                const data = result.data;
                 window._bangumiInfo = data.bangumi_info || null;
                 window._rssPreview = { group: data.group, latest_episode: data.latest_episode, sample_titles: data.sample_titles, suggested_season: data.suggested_season };
                 openBangumiModal({
@@ -313,7 +316,7 @@
                         const result = await resp.json();
                         document.getElementById('result').style.display = 'block';
                         document.getElementById('result').innerHTML = result.success
-                            ? `<p style="color:green">✅ 订阅成功</p><p class="label">Feed ID: ${result.message}</p>`
+                            ? `<p style="color:green">✅ 订阅成功</p><p class="label">Feed ID: ${result.data}</p>`
                             : `<p style="color:red">❌ 订阅失败: ${result.message}</p>`;
                         loadFeeds();
                         loadDownloads();
@@ -328,10 +331,18 @@
             }
         }
 
+        async function refreshRss() {
+            try {
+                await fetch('/api/feeds/update', { method: 'POST' });
+            } catch (e) { }
+            loadFeeds();
+        }
+
         async function loadFeeds() {
             try {
                 const resp = await fetch('/api/feeds');
-                const feeds = await resp.json();
+                const result = await resp.json();
+                const feeds = result.data || [];
                 const container = document.getElementById('feeds');
                 container.innerHTML = '';
                 feeds.forEach(f => {
@@ -357,10 +368,10 @@
                             try {
                                 const sr = await fetch('/api/bangumi/search?name=' + encodeURIComponent(f.name));
                                 const sd = await sr.json();
-                                if (sd.success && sd.bangumi_info) {
+                                if (sd.success && sd.data) {
                                     openBangumiModal({
                                         title: '📝 补全 Bangumi 信息',
-                                        info: sd.bangumi_info,
+                                        info: sd.data,
                                         feedName: f.name,
                                         onSave: async (editedInfo) => {
                                             const body = JSON.stringify({ name: editedInfo.feedName || f.name, season: editedInfo.season || f.season, bangumi_info: editedInfo });
@@ -412,7 +423,8 @@
         async function loadDownloads() {
             try {
                 const resp = await fetch('/api/downloads');
-                const data = await resp.json();
+                const result = await resp.json();
+                const data = result.data || [];
                 const el = document.getElementById('downloads');
                 if (!data.length) {
                     el.innerHTML = '<p class="label">暂无下载任务</p>';
@@ -516,15 +528,15 @@
                 try {
                     const resp = await fetch('/api/bangumi/subjects/' + id);
                     const data = await resp.json();
-                    if (data.success && data.bangumi_info) {
-                        openBangumiModal({ ...options, info: data.bangumi_info });
-                    } else {
-                        btn.textContent = '❌ 未找到';
-                        setTimeout(() => { btn.textContent = '查 Bangumi'; btn.disabled = false; }, 1500);
+                    if (data.success && data.data) {
+                        openBangumiModal({ ...options, info: data.data });
+                        return;
                     }
+                    btn.textContent = '❌ 未找到';
                 } catch (e) {
                     btn.textContent = '❌ 失败';
-                    setTimeout(() => { btn.textContent = '查 Bangumi'; btn.disabled = false; }, 1500);
+                } finally {
+                    setTimeout(() => { btn.textContent = '查号'; btn.disabled = false; }, 1500);
                 }
             };
             document.getElementById('modalIdBtn').textContent = '查号';
@@ -546,14 +558,14 @@
                     });
                     const data = await resp.json();
                     if (!modal.classList.contains('active')) return;
-                    if (data.success && data.bangumi_info) {
-                        openBangumiModal({ ...options, info: data.bangumi_info });
-                    } else {
-                        btn.textContent = '❌ 未找到';
-                        setTimeout(() => { btn.textContent = '搜名'; btn.disabled = false; }, 1500);
+                    if (data.success && data.data) {
+                        openBangumiModal({ ...options, info: data.data });
+                        return;
                     }
+                    btn.textContent = '❌ 未找到';
                 } catch (e) {
                     btn.textContent = '❌ 失败';
+                } finally {
                     setTimeout(() => { btn.textContent = '搜名'; btn.disabled = false; }, 1500);
                 }
             };
@@ -628,7 +640,7 @@
             try {
                 const resp = await fetch('/api/health');
                 const data = await resp.json();
-                if (resp.ok && data.success && data.downloader === 'connected') {
+                if (resp.ok && data.success) {
                     dot.style.background = '#22c55e'; // green
                     label.textContent = '下载器已就绪';
                     indicator.title = 'aria2/qBittorrent 连接正常';

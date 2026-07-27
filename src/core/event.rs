@@ -7,7 +7,7 @@ use crate::core::effect::Effect;
 use crate::core::state::AppState;
 use crate::services::persistence::save_state;
 use crate::traits::FileOps;
-use crate::types::{ApiResponse, BangumiInfo, FeedInfo, RssItem};
+use crate::types::{ApiResult, BangumiInfo, FeedInfo, RssItem};
 
 /// Events flow **inward** to the logic thread.
 #[derive(Debug)]
@@ -51,7 +51,7 @@ pub enum Event {
         name: String,
         season: u8,
         bangumi_info: Option<BangumiInfo>,
-        reply_tx: crossbeam_channel::Sender<ApiResponse>,
+        reply_tx: crossbeam_channel::Sender<ApiResult<String>>,
     },
 
     /// API: confirm a feed subscription with resolved anime info.
@@ -60,23 +60,23 @@ pub enum Event {
         name: String,
         season: u8,
         bangumi_info: Option<BangumiInfo>,
-        reply_tx: crossbeam_channel::Sender<ApiResponse>,
+        reply_tx: crossbeam_channel::Sender<ApiResult<String>>,
     },
 
     /// API: list all feeds.
     ApiListFeeds {
-        reply_tx: crossbeam_channel::Sender<Vec<FeedInfo>>,
+        reply_tx: crossbeam_channel::Sender<ApiResult<Vec<FeedInfo>>>,
     },
 
     /// API: remove a feed subscription.
     ApiRemoveFeed {
         feed_id: Uuid,
-        reply_tx: crossbeam_channel::Sender<ApiResponse>,
+        reply_tx: crossbeam_channel::Sender<ApiResult<String>>,
     },
 
     /// API: list current downloads (returns cached view immediately).
     ApiListDownloads {
-        reply_tx: crossbeam_channel::Sender<Vec<crate::types::DownloadInfo>>,
+        reply_tx: crossbeam_channel::Sender<ApiResult<Vec<crate::types::DownloadInfo>>>,
     },
 
     /// Trigger a downloader refresh — executor will query and feed back.
@@ -96,7 +96,7 @@ pub enum Event {
     /// API: query a single episode record by infohash (for file serving).
     ApiGetEpisode {
         infohash: String,
-        reply_tx: crossbeam_channel::Sender<Option<crate::types::EpisodeRecord>>,
+        reply_tx: crossbeam_channel::Sender<ApiResult<crate::types::EpisodeRecord>>,
     },
 }
 
