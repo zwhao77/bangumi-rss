@@ -145,6 +145,20 @@
         </div>
     </div>
 
+    <!-- 视频播放器 -->
+    <div class="modal-overlay" id="playerModal">
+        <div class="modal-box player-box">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <h3 id="playerTitle"
+                    style="margin:0;font-size:1rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">播放
+                </h3>
+                <button onclick="closePlayer()" class="btn btn-sm" style="flex-shrink:0">✕</button>
+            </div>
+            <video id="playerVideo" controls autoplay
+                style="width:100%;max-height:70vh;border-radius:6px;background:#000"></video>
+        </div>
+    </div>
+
     <script>
         // ============ 统一卡片构建函数 ============
         function buildAnimeCard(bangumiInfo, extra = {}) {
@@ -409,11 +423,15 @@
                     const speed = d.speed > 0 ? (d.speed / 1048576).toFixed(1) + ' MB/s' : '—';
                     const size = (d.size / 1073741824).toFixed(1) + ' GB';
                     const seasonTag = d.season ? `<span class="tag">${d.season}</span>` : '';
-                    return `<div>
-            <strong>${d.feed_name || d.name}</strong>
+                    const st = d.state.toLowerCase();
+                    const playable = st === 'completed' || st === 'seeding';
+                    const playBtn = playable ? `<button class="btn btn-sm" onclick="openPlayer('${d.infohash}','${(d.feed_name || d.name).replace(/'/g, "\\'")}')" style="margin-left:6px">▶ 播放</button>` : '';
+                    return `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px">
+            <strong style="flex:1;min-width:0">${d.feed_name || d.name}</strong>
             <span class="tag">${d.state}</span>
             ${seasonTag}
-            <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+            ${playBtn}
+            <div class="progress-bar" style="width:100%"><div class="progress-fill" style="width:${pct}%"></div></div>
             <span class="label">${pct}% · ${speed} · ${size}</span>
           </div>`;
                 }).join('');
@@ -639,6 +657,22 @@
                 btn.textContent = '❌ 失败';
             }
             setTimeout(() => { btn.disabled = false; btn.innerHTML = '📢 测试通知'; }, 2000);
+        }
+
+        // ============ 视频播放 ============
+        function openPlayer(infohash, name) {
+            document.getElementById('playerTitle').textContent = name || '播放';
+            const video = document.getElementById('playerVideo');
+            video.src = '/api/files/' + infohash;
+            video.load();
+            document.getElementById('playerModal').classList.add('active');
+        }
+
+        function closePlayer() {
+            const video = document.getElementById('playerVideo');
+            video.pause();
+            video.src = '';
+            document.getElementById('playerModal').classList.remove('active');
         }
 
         // 初始化

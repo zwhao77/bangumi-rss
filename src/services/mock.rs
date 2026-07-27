@@ -163,31 +163,42 @@ mod mock_fs {
     impl MockFileSystem {
         pub fn new() -> Self {
             let mut files = HashMap::new();
-            // Pre-seed a minimal state.json so the system starts with a tracker entry
-            // for file serving tests.
-            let default_state = serde_json::json!({
-                "feeds": {},
-                "tracker": {
-                    "DEADBEEF0123456789abcdef0123456789abcdef": {
-                        "infohash": "DEADBEEF0123456789abcdef0123456789abcdef",
-                        "torrent_url": "https://example.com/test.torrent",
-                        "feed_id": "00000000-0000-0000-0000-000000000000",
-                        "key": {
-                            "anime": { "name": "Mock Anime", "season": 1 },
-                            "episode": 1
+
+            // Build a proper AppState via its own Serialize impl so the format is guaranteed correct.
+            use crate::core::state::AppState;
+            use crate::types::{AnimeIdentity, EpisodeKey, EpisodeRecord, RecordStatus};
+            let state = AppState {
+                feeds: HashMap::new(),
+                tracker: [(
+                    "DEADBEEF0123456789abcdef0123456789abcdef".into(),
+                    EpisodeRecord {
+                        infohash: "DEADBEEF0123456789abcdef0123456789abcdef".into(),
+                        torrent_url: "https://example.com/test.torrent".into(),
+                        feed_id: uuid::Uuid::nil(),
+                        key: EpisodeKey {
+                            anime: AnimeIdentity { name: "Mock Anime".into(), season: 1 },
+                            episode: 1,
                         },
-                        "status": "InLibrary",
-                        "library_path": "/mock/anime/Mock Anime/S01/Mock Anime S01E01.mp4"
-                    }
-                },
-                "seen_urls": [],
-                "download_dir": "/mock/downloads",
-                "library_dir": "/mock/anime",
-                "webhook_url": null
-            });
+                        status: RecordStatus::InLibrary,
+                        library_path: Some("/mock/anime/Mock Anime/S01/Mock Anime S01E01.mp4".into()),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+                seen_urls: HashSet::new(),
+                cached_downloads: vec![],
+                download_dir: "/mock/downloads".into(),
+                library_dir: "/mock/anime".into(),
+                webhook_url: None,
+            };
             files.insert(
                 PathBuf::from(".").join("state.json"),
-                serde_json::to_vec_pretty(&default_state).unwrap_or_default(),
+                serde_json::to_vec_pretty(&state).unwrap_or_default(),
+            );
+            // Also pre-populate the mock file at the library path so open_file serves it.
+            files.insert(
+                PathBuf::from("/mock/anime/Mock Anime/S01/Mock Anime S01E01.mp4"),
+                super::MINI_MP4.to_vec(),
             );
             Self {
                 dirs: std::sync::Mutex::new(HashSet::new()),
@@ -250,6 +261,12 @@ mod mock_fs {
                     data.len() as u64,
                 )),
                 None => {
+                    if path.to_string_lossy().ends_with(".mp4") {
+                        return Ok(crate::types::FileStream::new(
+                            std::io::Cursor::new(super::MINI_MP4.to_vec()),
+                            super::MINI_MP4.len() as u64,
+                        ));
+                    }
                     let dummy = vec![0xAB; super::DUMMY_FILE_SIZE as usize];
                     Ok(crate::types::FileStream::new(
                         std::io::Cursor::new(dummy),
@@ -263,5 +280,8 @@ mod mock_fs {
 
 /// Standard dummy file size for mock filesystem (1 MB).
 const DUMMY_FILE_SIZE: u64 = 1024 * 1024;
+
+/// Minimal valid H.264 MP4 file (2×2 black frame, ~40 ms) for mock video playback.
+const MINI_MP4: &[u8] = include_bytes!("../../res/mini.mp4");
 
 pub use mock_fs::MockFileSystem;
