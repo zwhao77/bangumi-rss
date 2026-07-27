@@ -6,7 +6,7 @@ description = "Lightweight anime RSS auto-downloader — Rust single binary, <5 
 
 [dependencies]
 ureq = { version = "2", features = ["json", "proxy-from-env"] }
-tiny_http = "0.12"
+rouille = "3"
 crossbeam-channel = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -19,12 +19,7 @@ log = "0.4"
 env_logger = "0.11"
 serde_urlencoded = "0.7"
 percent-encoding = "2"
-matchit = "0.9"
 envconfig = "0.11"
-socket2 = "0.5"
 
 [dev-dependencies]
 tempfile = "3"
-
-[patch.crates-io]
-tiny_http = { path = "vendored/tiny-http" }

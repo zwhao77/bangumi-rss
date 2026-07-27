@@ -242,37 +242,21 @@ mod mock_fs {
             Ok(())
         }
 
-        fn file_size(&self, path: &Path) -> anyhow::Result<u64> {
+        fn open_file(&self, path: &Path) -> anyhow::Result<crate::types::FileStream> {
             let files = self.files.lock().unwrap();
             match files.get(path) {
-                Some(data) => Ok(data.len() as u64),
-                // Unknown file — return a standard dummy size (1 MB).
-                None => Ok(super::DUMMY_FILE_SIZE),
-            }
-        }
-
-        fn read_chunk(&self, path: &Path, offset: u64, length: usize) -> anyhow::Result<Vec<u8>> {
-            let files = self.files.lock().unwrap();
-            match files.get(path) {
-                Some(data) => {
-                    let start = offset as usize;
-                    let end = std::cmp::min(start + length, data.len());
-                    Ok(data[start..end].to_vec())
-                }
-                // Unknown file — return fixed dummy data.
+                Some(data) => Ok(crate::types::FileStream::new(
+                    std::io::Cursor::new(data.clone()),
+                    data.len() as u64,
+                )),
                 None => {
-                    let start = offset as usize;
-                    let end = std::cmp::min(start + length, super::DUMMY_FILE_SIZE as usize);
-                    let count = end.saturating_sub(start);
-                    Ok(vec![0xAB; count])
+                    let dummy = vec![0xAB; super::DUMMY_FILE_SIZE as usize];
+                    Ok(crate::types::FileStream::new(
+                        std::io::Cursor::new(dummy),
+                        super::DUMMY_FILE_SIZE,
+                    ))
                 }
             }
-        }
-
-        fn open_file(&self, _path: &Path) -> anyhow::Result<std::fs::File> {
-            // Mock files exist only in memory; can't produce a real OS File.
-            // Callers should fall back to read_chunk().
-            anyhow::bail!("mock: no real file")
         }
     }
 }

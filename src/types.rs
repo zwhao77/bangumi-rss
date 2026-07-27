@@ -233,3 +233,45 @@ pub enum Notification {
     EpisodeDownloaded(EpisodeDownloadedData),
     Failed(FailedData),
 }
+
+// ── Streamable file abstraction ──
+
+use std::io::{Read, Seek};
+
+/// Combined trait: anything that can be read and seeked.
+/// Required because Rust doesn't allow `Box<dyn Read + Seek + Send>` directly.
+pub trait ReadSeek: Read + Seek {}
+impl<T: Read + Seek> ReadSeek for T {}
+
+/// A streamable file with known size, abstracted over real files and in-memory data.
+/// Enables mock file systems to produce streams without temp files.
+pub struct FileStream {
+    inner: Box<dyn ReadSeek + Send>,
+    size: u64,
+}
+
+impl FileStream {
+    /// Create a FileStream from anything that can be read, seeked, and sent across threads.
+    /// - Production: `FileStream::new(File::open(path)?, file.metadata()?.len())`
+    /// - Mock: `FileStream::new(Cursor::new(data), data.len() as u64)`
+    pub fn new(inner: impl Read + Seek + Send + 'static, size: u64) -> Self {
+        Self {
+            inner: Box::new(inner),
+            size,
+        }
+    }
+
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// Seek to a position and return a length-limited reader.
+    pub fn into_range(
+        mut self,
+        start: u64,
+        length: u64,
+    ) -> std::io::Result<impl Read + Send + 'static> {
+        self.inner.seek(std::io::SeekFrom::Start(start))?;
+        Ok(self.inner.take(length))
+    }
+}

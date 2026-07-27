@@ -56,17 +56,8 @@ pub trait FileOps: Send + Sync {
     /// Write a string to a file, overwriting if it exists.
     fn write_string(&self, path: &Path, content: &str) -> anyhow::Result<()>;
 
-    /// Get the file size in bytes.
-    fn file_size(&self, path: &Path) -> anyhow::Result<u64>;
-
-    /// Read a chunk of a file starting at `offset`, returning up to `length` bytes.
-    /// Fewer bytes are returned if the chunk extends past EOF.
-    fn read_chunk(&self, path: &Path, offset: u64, length: usize) -> anyhow::Result<Vec<u8>>;
-
-    /// Open a file and return a real OS file handle.
+    /// Open a file and return a streamable file handle.
     /// For RealFileSystem this delegates to `File::open`;
-    /// MockFileSystem returns `Err` since files only exist in memory.
-    fn open_file(&self, path: &Path) -> anyhow::Result<std::fs::File>;
+    /// MockFileSystem returns an in-memory stream from stored bytes.
+    fn open_file(&self, path: &Path) -> anyhow::Result<crate::types::FileStream>;
 }
-
-
