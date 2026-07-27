@@ -6,6 +6,8 @@
 use crate::core::effect::Effect;
 use crate::core::event::{DownloadStatus, Event};
 use crate::core::state::{AppState, Feed};
+use std::collections::HashSet;
+
 use crate::types::{
     AnimeIdentity, ApiResult, BangumiInfo, DownloadInfo, DownloadSnapshot, EpisodeDownloadedData,
     EpisodeKey, EpisodeRecord, FailedData, FeedInfo, Notification, RecordStatus, RssItem,
@@ -136,7 +138,11 @@ fn reduce_rss_items_fetched(
 
 /// Periodic download poll → emit poll effects.
 fn reduce_poll_downloader() -> Vec<Effect> {
-    vec![Effect::PollCompleted, Effect::PollFailed]
+    vec![
+        Effect::PollCompleted,
+        Effect::PollFailed,
+        Effect::QueryAllDownloads,
+    ]
 }
 
 fn reduce_download_started(
@@ -203,12 +209,18 @@ fn reduce_downloader_notification(
             (state.clone(), effects)
         }
         DownloadStatus::Failed => {
-            log::warn!("download failed: {infohash}");
             let title = state
                 .tracker
                 .get(&infohash)
-                .map(|r| r.key.anime.name.clone())
-                .unwrap_or_else(|| format!("unknown ({})", &infohash[..infohash.len().min(16)]));
+                .map(|r| {
+                    let name = &r.key.anime.name;
+                    log::warn!("download failed: {} (infohash={})", name, &infohash[..infohash.len().min(16)]);
+                    name.clone()
+                })
+                .unwrap_or_else(|| {
+                    log::warn!("download failed: unknown (infohash={})", &infohash[..infohash.len().min(16)]);
+                    format!("unknown ({})", &infohash[..infohash.len().min(16)])
+                });
             let effects = vec![Effect::Notify(Notification::Failed(FailedData {
                 title,
                 message: "下载失败: 种子已失效或下载器不可用".to_string(),
@@ -440,6 +452,59 @@ fn reduce_downloads_refreshed(
     state: &AppState,
     snapshots: Vec<DownloadSnapshot>,
 ) -> (AppState, Vec<Effect>) {
+    let known: HashSet<&str> = snapshots.iter().map(|s| s.infohash.as_str()).collect();
+
+    let effects: Vec<Effect> = Vec::new();
+    let mut new_state = state.clone();
+    let mut vanished_count = 0u32;
+
+    // Cross-reference: find tracker entries that vanished from aria2 (restart/removed)
+    // Remove both tracker entry and seen_urls so RSS poll can re-download.
+    for (ih, record) in &state.tracker {
+        if record.status != RecordStatus::Downloading {
+            continue;
+        }
+        if known.contains(ih.as_str()) {
+            continue;
+        }
+        vanished_count += 1;
+        log::warn!(
+            "task vanished from aria2: {} (infohash={})",
+            record.key.anime.name,
+            &ih[..ih.len().min(16)]
+        );
+        if !record.torrent_url.is_empty() {
+            new_state = new_state.with_seen_url_removed(&record.torrent_url);
+        }
+        new_state = new_state.with_tracker_removed(ih);
+    }
+    if vanished_count > 0 {
+        log::info!(
+            "reconciliation: {} snapshot(s) from aria2, {} tracker entry(ies), {} vanished → removed + seen_urls cleaned",
+            known.len(),
+            state.tracker.len(),
+            vanished_count,
+        );
+    }
+
+    // Cross-reference: detect duplicate downloads (same infohash, different status)
+    for (ih, record) in &state.tracker {
+        if record.status != RecordStatus::InLibrary {
+            continue;
+        }
+        // Check if another entry with the same infohash is still Downloading
+        if let Some(other) = state.tracker.get(ih)
+            && other.status == RecordStatus::Downloading
+            && other.infohash == record.infohash
+        {
+            log::warn!(
+                "duplicate download detected: infohash={} is both InLibrary and Downloading",
+                &ih[..ih.len().min(16)]
+            );
+        }
+    }
+
+    // Build cached download list as before
     let downloads: Vec<DownloadInfo> = snapshots
         .into_iter()
         .map(|s| {
@@ -461,8 +526,8 @@ fn reduce_downloads_refreshed(
         })
         .collect();
 
-    let new_state = state.clone().with_downloads_cached(downloads);
-    (new_state, vec![])
+    new_state = new_state.with_downloads_cached(downloads);
+    (new_state, effects)
 }
 
 /// API: query a single episode record by infohash (used for file serving).

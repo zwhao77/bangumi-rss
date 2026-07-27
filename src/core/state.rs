@@ -113,6 +113,18 @@ impl AppState {
         self
     }
 
+    /// Remove a tracker entry by infohash.
+    pub fn with_tracker_removed(mut self, infohash: &str) -> Self {
+        self.tracker.remove(infohash);
+        self
+    }
+
+    /// Remove a URL from the seen set (allows re-download on next RSS poll).
+    pub fn with_seen_url_removed(mut self, url: &str) -> Self {
+        self.seen_urls.remove(url);
+        self
+    }
+
     /// Check if a torrent URL was already submitted.
     pub fn has_url(&self, url: &str) -> bool {
         self.seen_urls.contains(url)

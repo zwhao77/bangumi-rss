@@ -370,6 +370,7 @@ impl TorrentDownloader for Aria2Downloader {
                 "waiting" => crate::types::DownloadState::Waiting,
                 "paused" => crate::types::DownloadState::Paused,
                 "error" => crate::types::DownloadState::Failed,
+                "removed" => crate::types::DownloadState::Removed,
                 _ => continue,
             };
             let speed: u64 = t["downloadSpeed"]

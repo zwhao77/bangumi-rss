@@ -203,6 +203,7 @@ pub enum DownloadState {
     Checking,
     Completed,
     Failed,
+    Removed,
 }
 
 // ── Download list API types ──
