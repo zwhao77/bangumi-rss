@@ -133,7 +133,7 @@ fn main() -> anyhow::Result<()> {
                 tx,
                 dl,
                 fs,
-                services::server::ServerConfig {
+                services::ServerConfig {
                     bind_addr: config.bind_addr,
                     port: config.port,
                     max_connections: config.max_connections,
