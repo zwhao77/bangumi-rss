@@ -155,16 +155,45 @@ mod mock_fs {
         moves: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
         #[allow(dead_code)]
         pub existing: std::sync::Mutex<HashSet<PathBuf>>,
-        files: std::sync::Mutex<HashMap<PathBuf, String>>,
+        /// In-memory file store: path → binary content.
+        /// Pre-seeded with a default state.json; unknown files return dummy data.
+        files: std::sync::Mutex<HashMap<PathBuf, Vec<u8>>>,
     }
 
     impl MockFileSystem {
         pub fn new() -> Self {
+            let mut files = HashMap::new();
+            // Pre-seed a minimal state.json so the system starts with a tracker entry
+            // for file serving tests.
+            let default_state = serde_json::json!({
+                "feeds": {},
+                "tracker": {
+                    "DEADBEEF0123456789abcdef0123456789abcdef": {
+                        "infohash": "DEADBEEF0123456789abcdef0123456789abcdef",
+                        "torrent_url": "https://example.com/test.torrent",
+                        "feed_id": "00000000-0000-0000-0000-000000000000",
+                        "key": {
+                            "anime": { "name": "Mock Anime", "season": 1 },
+                            "episode": 1
+                        },
+                        "status": "InLibrary",
+                        "library_path": "/mock/anime/Mock Anime/S01/Mock Anime S01E01.mp4"
+                    }
+                },
+                "seen_urls": [],
+                "download_dir": "/mock/downloads",
+                "library_dir": "/mock/anime",
+                "webhook_url": null
+            });
+            files.insert(
+                PathBuf::from(".").join("state.json"),
+                serde_json::to_vec_pretty(&default_state).unwrap_or_default(),
+            );
             Self {
                 dirs: std::sync::Mutex::new(HashSet::new()),
                 moves: std::sync::Mutex::new(Vec::new()),
                 existing: std::sync::Mutex::new(HashSet::new()),
-                files: std::sync::Mutex::new(HashMap::new()),
+                files: std::sync::Mutex::new(files),
             }
         }
 
@@ -191,29 +220,64 @@ mod mock_fs {
         }
 
         fn read_to_string(&self, path: &Path) -> anyhow::Result<String> {
-            let content = self
+            let data = self
                 .files
                 .lock()
                 .unwrap()
                 .get(path)
                 .cloned()
-                .ok_or_else(|| anyhow::anyhow!("mock file not found: {path:?}"));
-            match &content {
-                Ok(s) => log::debug!("[mock-fs] read: {path:?} ({} bytes)", s.len()),
-                Err(e) => log::debug!("[mock-fs] read miss: {path:?} — {e}"),
-            }
-            content
+                .ok_or_else(|| anyhow::anyhow!("mock file not found: {path:?}"))?;
+            let s = String::from_utf8(data)
+                .map_err(|e| anyhow::anyhow!("mock file not valid UTF-8: {e}"))?;
+            log::debug!("[mock-fs] read: {path:?} ({} bytes)", s.len());
+            Ok(s)
         }
 
         fn write_string(&self, path: &Path, content: &str) -> anyhow::Result<()> {
             self.files
                 .lock()
                 .unwrap()
-                .insert(path.to_path_buf(), content.to_string());
+                .insert(path.to_path_buf(), content.as_bytes().to_vec());
             log::debug!("[mock-fs] write: {path:?} ({} bytes)", content.len());
             Ok(())
         }
+
+        fn file_size(&self, path: &Path) -> anyhow::Result<u64> {
+            let files = self.files.lock().unwrap();
+            match files.get(path) {
+                Some(data) => Ok(data.len() as u64),
+                // Unknown file — return a standard dummy size (1 MB).
+                None => Ok(super::DUMMY_FILE_SIZE),
+            }
+        }
+
+        fn read_chunk(&self, path: &Path, offset: u64, length: usize) -> anyhow::Result<Vec<u8>> {
+            let files = self.files.lock().unwrap();
+            match files.get(path) {
+                Some(data) => {
+                    let start = offset as usize;
+                    let end = std::cmp::min(start + length, data.len());
+                    Ok(data[start..end].to_vec())
+                }
+                // Unknown file — return fixed dummy data.
+                None => {
+                    let start = offset as usize;
+                    let end = std::cmp::min(start + length, super::DUMMY_FILE_SIZE as usize);
+                    let count = end.saturating_sub(start);
+                    Ok(vec![0xAB; count])
+                }
+            }
+        }
+
+        fn open_file(&self, _path: &Path) -> anyhow::Result<std::fs::File> {
+            // Mock files exist only in memory; can't produce a real OS File.
+            // Callers should fall back to read_chunk().
+            anyhow::bail!("mock: no real file")
+        }
     }
 }
+
+/// Standard dummy file size for mock filesystem (1 MB).
+const DUMMY_FILE_SIZE: u64 = 1024 * 1024;
 
 pub use mock_fs::MockFileSystem;

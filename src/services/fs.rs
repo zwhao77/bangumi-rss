@@ -1,5 +1,6 @@
 //! Real file-system operations behind `FileOps` trait.
 
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use crate::traits::FileOps;
@@ -28,5 +29,22 @@ impl FileOps for RealFileSystem {
 
     fn write_string(&self, path: &Path, content: &str) -> anyhow::Result<()> {
         Ok(std::fs::write(path, content)?)
+    }
+
+    fn file_size(&self, path: &Path) -> anyhow::Result<u64> {
+        Ok(std::fs::metadata(path)?.len())
+    }
+
+    fn read_chunk(&self, path: &Path, offset: u64, length: usize) -> anyhow::Result<Vec<u8>> {
+        let mut file = std::fs::File::open(path)?;
+        file.seek(SeekFrom::Start(offset))?;
+        let mut buf = vec![0u8; length];
+        let n = file.read(&mut buf)?;
+        buf.truncate(n);
+        Ok(buf)
+    }
+
+    fn open_file(&self, path: &Path) -> anyhow::Result<std::fs::File> {
+        Ok(std::fs::File::open(path)?)
     }
 }
