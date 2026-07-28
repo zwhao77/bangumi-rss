@@ -44,6 +44,7 @@ LIBRARY_DIR=/anime \
 | `NO_SERVER` | `false` | 禁用 HTTP 服务器 |
 | `DATA_DIR` | `.` | 状态文件目录 (`state.json`) |
 | `RSS_INTERVAL` | `900` | RSS 轮询间隔（秒） |
+| `POLL_INTERVAL` | `30` | 下载状态轮询间隔（秒） |
 | `ARIA2_RPC_URL` | `http://localhost:6800/jsonrpc` | Aria2 JSON-RPC 端点 |
 | `DOWNLOAD_DIR` | `/downloads` | 种子暂存目录 |
 | `LIBRARY_DIR` | `/anime` | 媒体库输出目录 |

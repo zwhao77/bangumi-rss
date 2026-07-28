@@ -44,6 +44,7 @@ Open `http://localhost:7893` in browser to subscribe and manage.
 | `NO_SERVER` | `false` | Disable HTTP server |
 | `DATA_DIR` | `.` | State file directory (`state.json`) |
 | `RSS_INTERVAL` | `900` | RSS poll interval (seconds) |
+| `POLL_INTERVAL` | `30` | Download status poll interval (seconds) |
 | `ARIA2_RPC_URL` | `http://localhost:6800/jsonrpc` | Aria2 JSON-RPC endpoint |
 | `DOWNLOAD_DIR` | `/downloads` | Torrent staging directory |
 | `LIBRARY_DIR` | `/anime` | Media library output directory |
