@@ -4,6 +4,7 @@ use envconfig::Envconfig;
 pub enum Downloader {
     Aria2,
     Qbittorrent,
+    Transmission,
 }
 
 impl std::str::FromStr for Downloader {
@@ -12,7 +13,8 @@ impl std::str::FromStr for Downloader {
         match s {
             "aria2" => Ok(Self::Aria2),
             "qbittorrent" => Ok(Self::Qbittorrent),
-            _ => Err("expected aria2 or qbittorrent"),
+            "transmission" => Ok(Self::Transmission),
+            _ => Err("expected aria2, qbittorrent, or transmission"),
         }
     }
 }
@@ -45,6 +47,12 @@ pub struct Config {
     pub qbittorrent_user: String,
     #[envconfig(from = "QBITTORRENT_PASS", default = "adminadmin")]
     pub qbittorrent_pass: String,
+    #[envconfig(from = "TRANSMISSION_RPC_URL", default = "http://localhost:9091/transmission/rpc")]
+    pub transmission_rpc_url: String,
+    #[envconfig(from = "TRANSMISSION_USER", default = "")]
+    pub transmission_user: String,
+    #[envconfig(from = "TRANSMISSION_PASS", default = "")]
+    pub transmission_pass: String,
     #[envconfig(from = "BANGUMI_API_BASE", default = "https://api.bgm.tv")]
     pub bangumi_api_base: String,
     #[envconfig(from = "TORRENT_CONCURRENCY", default = "4")]
@@ -146,9 +154,15 @@ mod tests {
     }
 
     #[test]
+    fn valid_downloader_transmission() {
+        let c = Config::init_from_hashmap(&hashmap(&[("DOWNLOADER", "transmission")])).unwrap();
+        assert!(matches!(c.downloader, Downloader::Transmission));
+    }
+
+    #[test]
     fn invalid_downloader() {
         let err =
-            Config::init_from_hashmap(&hashmap(&[("DOWNLOADER", "transmission")])).unwrap_err();
+            Config::init_from_hashmap(&hashmap(&[("DOWNLOADER", "rutracker")])).unwrap_err();
         assert!(
             err.to_string().contains("DOWNLOADER"),
             "unexpected error: {err}"

@@ -70,17 +70,23 @@ fn main() -> anyhow::Result<()> {
     // ── services (trait objects behind Arc) ──
     let downloader: Arc<dyn crate::traits::TorrentDownloader> = if config.mock_downloader {
         Arc::new(services::MockDownloader::new())
-    } else if matches!(config.downloader, Downloader::Qbittorrent) {
-        Arc::new(services::QbittorrentDownloader::from_config(
-            config.qbittorrent_url,
-            config.qbittorrent_user,
-            config.qbittorrent_pass,
-        ))
     } else {
-        Arc::new(services::Aria2Downloader::with_rpc_url(
-            config.aria2_rpc_url,
-            config.aria2_rpc_token,
-        ))
+        match config.downloader {
+            Downloader::Qbittorrent => Arc::new(services::QbittorrentDownloader::from_config(
+                config.qbittorrent_url,
+                config.qbittorrent_user,
+                config.qbittorrent_pass,
+            )),
+            Downloader::Transmission => Arc::new(services::TransmissionDownloader::with_rpc_url(
+                config.transmission_rpc_url,
+                config.transmission_user,
+                config.transmission_pass,
+            )),
+            Downloader::Aria2 => Arc::new(services::Aria2Downloader::with_rpc_url(
+                config.aria2_rpc_url,
+                config.aria2_rpc_token,
+            )),
+        }
     };
 
     let fs_ops_for_executor = Arc::clone(&fs_ops);

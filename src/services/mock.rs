@@ -83,11 +83,31 @@ impl TorrentDownloader for MockDownloader {
 
         let name = format!("[MockSubs] {} - 01 [1080p].mkv", task.name);
         log::debug!("[mock-dl] list_files: infohash={infohash} → {name}");
-        Ok(vec![TorrentFile { name }])
+        Ok(vec![TorrentFile {
+            path: name.clone(),
+            name,
+        }])
     }
 
-    fn rename_file(&self, infohash: &str, new_name: &str) -> anyhow::Result<bool> {
-        log::debug!("[mock-dl] rename: {infohash} → {new_name}");
+    fn rename_file(&self, _infohash: &str, _old_path: &str, _new_name: &str) -> anyhow::Result<bool> {
+        // MockDownloader simulates aria2 behaviour: no downloader rename support.
+        // Caller should fall back to filesystem rename.
+        log::debug!("[mock-dl] rename not supported → using filesystem fallback");
+        Ok(false)
+    }
+
+    fn move_files(&self, _infohash: &str, _new_location: &str) -> anyhow::Result<bool> {
+        log::debug!("[mock-dl] move not supported → using filesystem fallback");
+        Ok(false)
+    }
+
+    fn pause(&self, infohash: &str) -> anyhow::Result<bool> {
+        log::debug!("[mock-dl] pause: {infohash}");
+        Ok(true)
+    }
+
+    fn remove(&self, infohash: &str, _delete_files: bool) -> anyhow::Result<bool> {
+        log::debug!("[mock-dl] remove: {infohash}");
         Ok(true)
     }
 

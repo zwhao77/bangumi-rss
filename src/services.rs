@@ -12,6 +12,7 @@ pub mod persistence;
 pub mod qbittorrent;
 mod server;
 pub mod timer;
+pub mod transmission;
 
 pub use downloader::Aria2Downloader;
 pub use executor::EffectExecutor;
@@ -19,6 +20,7 @@ pub use fs::RealFileSystem;
 pub use mock::{MockDownloader, MockFileSystem};
 
 pub use qbittorrent::QbittorrentDownloader;
+pub use transmission::TransmissionDownloader;
 pub use server::ServerConfig;
 pub use server::start_server;
 pub use timer::TimerManager;

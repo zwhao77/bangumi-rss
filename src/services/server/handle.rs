@@ -421,7 +421,16 @@ mod tests {
             fn list_files(&self, _: &str) -> anyhow::Result<Vec<crate::types::TorrentFile>> {
                 Ok(vec![])
             }
-            fn rename_file(&self, _: &str, _: &str) -> anyhow::Result<bool> {
+            fn rename_file(&self, _: &str, _: &str, _: &str) -> anyhow::Result<bool> {
+                Ok(true)
+            }
+            fn move_files(&self, _: &str, _: &str) -> anyhow::Result<bool> {
+                Ok(true)
+            }
+            fn pause(&self, _: &str) -> anyhow::Result<bool> {
+                Ok(true)
+            }
+            fn remove(&self, _: &str, _: bool) -> anyhow::Result<bool> {
                 Ok(true)
             }
             fn poll_completed(&self) -> anyhow::Result<Vec<crate::types::CompletedDownload>> {

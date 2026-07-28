@@ -9,7 +9,7 @@ use crate::types::{CompletedDownload, TorrentFile};
 
 // ── Service traits ──
 
-/// Manages torrent downloads (add, list, rename, poll completion).
+/// Manages torrent downloads (add, list, rename, pause, move, remove).
 pub trait TorrentDownloader: Send + Sync {
     /// Add a torrent by URI (magnet or HTTP URL).
     /// Returns the torrent's infohash.
@@ -22,8 +22,34 @@ pub trait TorrentDownloader: Send + Sync {
     /// List files in a completed/active download identified by infohash.
     fn list_files(&self, infohash: &str) -> anyhow::Result<Vec<TorrentFile>>;
 
-    /// Rename a file within a download task.
-    fn rename_file(&self, infohash: &str, new_name: &str) -> anyhow::Result<bool>;
+    /// Rename a file or folder within a torrent download.
+    ///
+    /// `old_path` is the torrent-relative path to rename (from `TorrentFile.path`).
+    /// `new_name` is the new filename (last component only, NOT a full path).
+    ///
+    /// Returns `Ok(true)` on success, `Ok(false)` if the downloader does not
+    /// support this operation (caller should fall back to filesystem rename).
+    fn rename_file(
+        &self,
+        infohash: &str,
+        old_path: &str,
+        new_name: &str,
+    ) -> anyhow::Result<bool>;
+
+    /// Move all files of a torrent to a new directory.
+    ///
+    /// Returns `Ok(true)` on success, `Ok(false)` if the downloader does not
+    /// support this operation (caller should fall back to filesystem move).
+    fn move_files(&self, infohash: &str, new_location: &str) -> anyhow::Result<bool>;
+
+    /// Pause (stop) a download task.  For BT downloads this also pauses seeding.
+    fn pause(&self, infohash: &str) -> anyhow::Result<bool>;
+
+    /// Remove a download task from the downloader.
+    ///
+    /// If `delete_files` is false, the downloaded data is preserved on disk.
+    /// This is the common case when files have already been moved to the library.
+    fn remove(&self, infohash: &str, delete_files: bool) -> anyhow::Result<bool>;
 
     /// Poll for recently completed downloads.
     fn poll_completed(&self) -> anyhow::Result<Vec<CompletedDownload>>;

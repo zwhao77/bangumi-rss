@@ -10,7 +10,10 @@ use std::path::PathBuf;
 
 /// Result of scanning a completed torrent's files.
 pub(crate) struct ResolvedFile {
-    /// Original filename in the torrent, e.g. "[ANi] ... - 01.mp4".
+    /// Torrent-relative path of the source file, e.g. "[ANi] ... - 01.mp4".
+    /// Used as `old_path` when calling `downloader.rename_file()`.
+    pub original_path: String,
+    /// Original filename in the torrent (last component of `original_path`).
     pub original_name: String,
     /// Episode identity (anime + season + episode number).
     pub key: EpisodeKey,
@@ -99,6 +102,7 @@ pub(crate) fn resolve_files(
             let to = make_library_path(library_dir, &actual_key, &target_name);
 
             Some(ResolvedFile {
+                original_path: f.path.clone(),
                 original_name: f.name.clone(),
                 key: actual_key,
                 target_name,
@@ -143,12 +147,15 @@ mod tests {
     fn resolve_matches_episode() {
         let files = vec![
             TorrentFile {
+                path: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
                 name: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
             },
             TorrentFile {
+                path: "[ANi] 葬送的芙莉莲 - 02 [1080P].mp4".into(),
                 name: "[ANi] 葬送的芙莉莲 - 02 [1080P].mp4".into(),
             },
             TorrentFile {
+                path: "not-a-video.txt".into(),
                 name: "not-a-video.txt".into(),
             },
         ];
@@ -216,6 +223,7 @@ mod tests {
     fn resolve_expected_episode_overrides() {
         let files = vec![TorrentFile {
             name: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
+            path: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
         }];
         let record = EpisodeRecord {
             infohash: "DEADBEEF".into(),
@@ -255,6 +263,7 @@ mod tests {
     fn resolve_episode_zero_filtered() {
         let files = vec![TorrentFile {
             name: "[ANi] 葬送的芙莉莲 - 00 [1080P].mp4".into(),
+            path: "[ANi] 葬送的芙莉莲 - 00 [1080P].mp4".into(),
         }];
         let record = EpisodeRecord {
             infohash: "DEADBEEF".into(),
@@ -276,9 +285,11 @@ mod tests {
         let files = vec![
             TorrentFile {
                 name: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
+                path: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
             },
             TorrentFile {
                 name: "[ANi] 葬送的芙莉莲 - 05 [1080P].mp4".into(),
+                path: "[ANi] 葬送的芙莉莲 - 05 [1080P].mp4".into(),
             },
         ];
         let record = EpisodeRecord {

@@ -42,7 +42,9 @@ impl QbittorrentDownloader {
         let resp = ureq::post(&format!("{}/api/v2/auth/login", self.api_url))
             .set("Content-Type", "application/x-www-form-urlencoded")
             .set("Referer", &self.api_url)
-            .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
+            .timeout(std::time::Duration::from_secs(
+                crate::config::HTTP_TIMEOUT_SECS,
+            ))
             .send_string(&body)
             .ok()?;
 
@@ -71,7 +73,9 @@ impl QbittorrentDownloader {
         let url = format!("{}/api/v2/{}", self.api_url, path);
         let resp = ureq::get(&url)
             .set("Cookie", &format!("SID={}", sid))
-            .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
+            .timeout(std::time::Duration::from_secs(
+                crate::config::HTTP_TIMEOUT_SECS,
+            ))
             .call()
             .ok()?;
 
@@ -80,7 +84,9 @@ impl QbittorrentDownloader {
             let sid = self.login()?;
             let resp = ureq::get(&url)
                 .set("Cookie", &format!("SID={}", sid))
-                .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
+                .timeout(std::time::Duration::from_secs(
+                    crate::config::HTTP_TIMEOUT_SECS,
+                ))
                 .call()
                 .ok()?;
             return resp.into_json().ok();
@@ -101,7 +107,9 @@ impl QbittorrentDownloader {
         let resp = ureq::post(&url)
             .set("Cookie", &format!("SID={}", sid))
             .set("Content-Type", "application/x-www-form-urlencoded")
-            .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
+            .timeout(std::time::Duration::from_secs(
+                crate::config::HTTP_TIMEOUT_SECS,
+            ))
             .send_string(&body)
             .ok()?;
 
@@ -110,7 +118,9 @@ impl QbittorrentDownloader {
             let resp = ureq::post(&url)
                 .set("Cookie", &format!("SID={}", sid))
                 .set("Content-Type", "application/x-www-form-urlencoded")
-                .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
+                .timeout(std::time::Duration::from_secs(
+                    crate::config::HTTP_TIMEOUT_SECS,
+                ))
                 .send_string(&body)
                 .ok()?;
             return resp.into_json().ok();
@@ -166,7 +176,9 @@ impl QbittorrentDownloader {
         let resp = ureq::post(&url)
             .set("Cookie", &format!("SID={}", sid))
             .set("Content-Type", &ct)
-            .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
+            .timeout(std::time::Duration::from_secs(
+                crate::config::HTTP_TIMEOUT_SECS,
+            ))
             .send_bytes(&body)?;
 
         if resp.status() == 403 {
@@ -177,7 +189,9 @@ impl QbittorrentDownloader {
             let resp = ureq::post(&url)
                 .set("Cookie", &format!("SID={}", sid))
                 .set("Content-Type", &ct)
-                .timeout(std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS))
+                .timeout(std::time::Duration::from_secs(
+                    crate::config::HTTP_TIMEOUT_SECS,
+                ))
                 .send_bytes(&body)?;
             if resp.status() != 200 {
                 anyhow::bail!(
@@ -251,19 +265,23 @@ impl TorrentDownloader for QbittorrentDownloader {
             .unwrap_or_default();
         Ok(arr
             .iter()
-            .map(|f| TorrentFile {
-                name: f["name"].as_str().unwrap_or("").to_string(),
+            .map(|f| {
+                let path = f["name"].as_str().unwrap_or("").to_string();
+                let name = std::path::Path::new(&path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                TorrentFile { path, name }
             })
             .collect())
     }
 
-    fn rename_file(&self, infohash: &str, new_name: &str) -> anyhow::Result<bool> {
-        // Discover original filename from the torrent's file list.
-        let files = self.list_files(infohash)?;
-        let old_path = files
-            .first()
-            .map(|f| f.name.as_str())
-            .unwrap_or(new_name);
+    fn rename_file(
+        &self,
+        infohash: &str,
+        old_path: &str,
+        new_name: &str,
+    ) -> anyhow::Result<bool> {
         self.post_form(
             "torrents/renameFile",
             &[
@@ -272,7 +290,31 @@ impl TorrentDownloader for QbittorrentDownloader {
                 ("newPath", new_name),
             ],
         );
-        // API returns 200 on success, empty body — assume success.
+        Ok(true)
+    }
+
+    fn move_files(&self, infohash: &str, new_location: &str) -> anyhow::Result<bool> {
+        self.post_form(
+            "torrents/setLocation",
+            &[
+                ("hashes", infohash),
+                ("location", new_location),
+            ],
+        );
+        Ok(true)
+    }
+
+    fn pause(&self, infohash: &str) -> anyhow::Result<bool> {
+        self.post_form("torrents/pause", &[("hashes", infohash)]);
+        Ok(true)
+    }
+
+    fn remove(&self, infohash: &str, delete_files: bool) -> anyhow::Result<bool> {
+        let df = if delete_files { "true" } else { "false" };
+        self.post_form(
+            "torrents/delete",
+            &[("hashes", infohash), ("deleteFiles", df)],
+        );
         Ok(true)
     }
 

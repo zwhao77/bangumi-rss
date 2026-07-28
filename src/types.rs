@@ -68,6 +68,10 @@ pub struct RssItem {
 /// A file inside a completed torrent download.
 #[derive(Debug, Clone)]
 pub struct TorrentFile {
+    /// Torrent-relative path, e.g. "Season 1/Episode 01.mkv".
+    /// For single-file torrents this is just the filename.
+    pub path: String,
+    /// File name extracted from `path` (the last component).
     pub name: String,
 }
 

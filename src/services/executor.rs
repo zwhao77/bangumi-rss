@@ -209,6 +209,13 @@ impl EffectExecutor {
             feed_id,
             anime.name
         );
+
+        // Step 1: Pause the download (stop seeding).
+        if let Err(e) = self.downloader.pause(infohash) {
+            log::warn!("pause failed (non-fatal): {e}");
+        }
+
+        // Step 2: List files from the downloader.
         let files = match self.downloader.list_files(infohash) {
             Ok(f) => {
                 log::debug!("list_files: {} file(s)", f.len());
@@ -237,44 +244,58 @@ impl EffectExecutor {
         let resolved =
             crate::utils::handler::resolve_files(&files, &record, download_dir, library_dir);
 
-        let effects = Vec::new();
+        let season_dir =
+            format!("{}/{}/S{:02}", library_dir, anime.name, anime.season);
 
-        for r in &resolved {
-            log::debug!(
-                "  episode={} -> rename to '{}'",
-                r.key.episode,
-                r.target_name
+        // Step 3: Try downloader-mediated rename + move first;
+        // fall back to filesystem operations (aria2 path).
+        let used_downloader_ops = self
+            .try_downloader_rename(infohash, &resolved)
+            && self.try_downloader_move(infohash, &season_dir);
+
+        if !used_downloader_ops {
+            // ---- Fallback: aria2 path ----
+            // Remove from downloader before moving files
+            // (downloader lacks rename/move APIs).
+            if let Err(e) = self.downloader.remove(infohash, false) {
+                log::warn!("remove failed (non-fatal): {e}");
+            }
+            log::info!(
+                "using filesystem fallback for {} (downloader lacks rename/move)",
+                &infohash[..infohash.len().min(16)]
             );
-
-            // Idempotent: if target already exists (crash recovery), skip move.
-            if r.to.exists() {
-                log::debug!("already in library: {:?}", r.to);
-            } else {
-                if let Some(parent) = r.to.parent()
-                    && let Err(e) = self.fs.ensure_dir(parent)
-                {
-                    log::warn!("ensure_dir failed: {parent:?}: {e}");
-                    continue;
-                }
-                match self.fs.move_file(&r.from, &r.to) {
-                    Ok(()) => log::info!("moved: {:?} → {:?}", r.from, r.to),
-                    Err(e) => {
-                        log::warn!("move failed: {:?} → {:?}: {e}", r.from, r.to);
+            for r in &resolved {
+                if r.to.exists() {
+                    log::debug!("already in library: {:?}", r.to);
+                } else {
+                    if let Some(parent) = r.to.parent()
+                        && let Err(e) = self.fs.ensure_dir(parent)
+                    {
+                        log::warn!("ensure_dir failed: {parent:?}: {e}");
                         continue;
+                    }
+                    match self.fs.move_file(&r.from, &r.to) {
+                        Ok(()) => log::info!("fs move: {:?} → {:?}", r.from, r.to),
+                        Err(e) => {
+                            log::warn!("fs move failed: {:?} → {:?}: {e}", r.from, r.to);
+                            continue;
+                        }
                     }
                 }
             }
+        } else {
+            // ---- Downloader-mediated (Transmission / qBittorrent) ----
+            // Keep torrent in downloader for continued seeding.
+            // The downloader knows the file's new location (set by move_files).
+            // No re-download risk: file is 100% complete at the correct path.
+            log::info!(
+                "completed via downloader ops: {}",
+                &infohash[..infohash.len().min(16)]
+            );
+        }
 
-            // Try aria2 rename (best-effort).
-            match self.downloader.rename_file(infohash, &r.target_name) {
-                Ok(true) => {
-                    log::info!("renamed: '{}' → '{}'", r.original_name, r.target_name)
-                }
-                Ok(false) => log::debug!("rename returned false for '{}'", r.original_name),
-                Err(e) => log::warn!("rename failed: {e}"),
-            }
-
-            // Notify logic: episode + path resolved, move complete.
+        // Step 4: Emit EpisodeCompleted events.
+        for r in &resolved {
             self.event_tx
                 .send(Event::EpisodeCompleted {
                     infohash: infohash.to_string(),
@@ -284,9 +305,52 @@ impl EffectExecutor {
                 .ok();
         }
 
-        effects
+        vec![]
     }
 
+    fn try_downloader_rename(
+        &self,
+        infohash: &str,
+        resolved: &[crate::utils::handler::ResolvedFile],
+    ) -> bool {
+        for r in resolved {
+            // Strip .part suffix if present (Transmission appends it during download).
+            // After torrent_stop the suffix is normally removed, but handle it defensively.
+            let clean_path = r.original_path.strip_suffix(".part").unwrap_or(&r.original_path);
+            match self
+                .downloader
+                .rename_file(infohash, clean_path, &r.target_name)
+            {
+                Ok(true) => log::info!("rename: {} → {}", r.original_path, r.target_name),
+                Ok(false) => {
+                    log::debug!("rename not supported by downloader");
+                    return false;
+                }
+                Err(e) => {
+                    log::warn!("rename failed: {e}");
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    fn try_downloader_move(&self, infohash: &str, season_dir: &str) -> bool {
+        match self.downloader.move_files(infohash, season_dir) {
+            Ok(true) => {
+                log::info!("move: → {season_dir}");
+                true
+            }
+            Ok(false) => {
+                log::debug!("move not supported by downloader");
+                false
+            }
+            Err(e) => {
+                log::warn!("move failed: {e}");
+                false
+            }
+        }
+    }
     fn do_notify(&self, notification: &crate::types::Notification) -> Vec<Effect> {
         match &self.webhook {
             Some(cfg) => {
@@ -505,6 +569,7 @@ mod tests {
             got_completed,
             "should receive EpisodeCompleted after handle"
         );
+        // File moved to library via filesystem rename (breaks seeding).
         assert_eq!(fs.move_count(), 1, "should have called move_file once");
     }
 }
