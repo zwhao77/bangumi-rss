@@ -30,24 +30,8 @@ struct MockTask {
 impl MockDownloader {
     pub fn new() -> Self {
         Self {
-            tasks: Mutex::new(vec![
-                MockTask {
-                    infohash: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into(),
-                    name: "Test Anime S01E01".into(),
-                    completed: true,
-                },
-                MockTask {
-                    infohash: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".into(),
-                    name: "Test Anime S01E02".into(),
-                    completed: true,
-                },
-                MockTask {
-                    infohash: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".into(),
-                    name: "Test Anime S01E03".into(),
-                    completed: true,
-                },
-            ]),
-            counter: Mutex::new(3),
+            tasks: Mutex::new(Vec::new()),
+            counter: Mutex::new(0),
         }
     }
 }

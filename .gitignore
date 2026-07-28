@@ -9,3 +9,4 @@ state.json
 SECURITY_NOTES.md
 vendored/tiny-http/target/
 gotify-data/
+run/aria2.session

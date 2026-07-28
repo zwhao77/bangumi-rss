@@ -2,23 +2,6 @@ use base64::Engine;
 
 use rouille::{Request, Response};
 
-pub fn truncate(s: &str, max: usize) -> String {
-    let chars: Vec<_> = s.char_indices().collect();
-    if chars.len() <= max {
-        return s.to_string();
-    }
-    let head = max * 3 / 4;
-    let tail = max / 4;
-    let head_end = chars[head].0;
-    let tail_start = chars[chars.len() - tail].0;
-    format!(
-        "{}...<{} chars omitted>...{}",
-        &s[..head_end],
-        chars.len().saturating_sub(head + tail),
-        &s[tail_start..]
-    )
-}
-
 pub fn check_auth(request: &Request, username: &str, password: &str) -> bool {
     request
         .header("Authorization")
@@ -95,19 +78,6 @@ mod tests {
     fn test_auth_fail_no_header() {
         let req = Request::fake_http("GET", "/", vec![], vec![]);
         assert!(!check_auth(&req, "user", "pass"));
-    }
-
-    #[test]
-    fn test_truncate_short() {
-        assert_eq!(truncate("hello", 10), "hello");
-        assert_eq!(truncate("hello", 5), "hello");
-    }
-
-    #[test]
-    fn test_truncate_long() {
-        let s = truncate("abcdefghijklmnopqrstuvwxyz", 10);
-        assert!(s.contains("chars omitted"));
-        assert!(s.len() > 5);
     }
 
     #[test]

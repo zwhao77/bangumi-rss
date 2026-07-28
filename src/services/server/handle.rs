@@ -128,6 +128,14 @@ fn fire_event(tx: &Sender<Event>, event: Event, msg: &str) -> Response {
     }
 }
 
+/// Read JSON body from request with Content-Type validation and debug logging.
+fn json_body(request: &Request) -> Result<serde_json::Value, HandlerError> {
+    let v = rouille::input::json_input(request)
+        .map_err(|e| HandlerError::BadRequest(format!("invalid JSON: {e}")))?;
+    log::debug!("body: {}", serde_json::to_string(&v).unwrap_or_default());
+    Ok(v)
+}
+
 // ── Route handlers ──
 
 pub fn handle_index(fs: &dyn FileOps) -> Response {
@@ -145,9 +153,9 @@ pub fn handle_style_css(fs: &dyn FileOps) -> Response {
 }
 
 pub fn handle_preview(request: &Request) -> Response {
-    let json: serde_json::Value = match rouille::input::json_input(request) {
+    let json = match json_body(request) {
         Ok(v) => v,
-        Err(e) => return HandlerError::BadRequest(format!("invalid JSON: {e}")).into(),
+        Err(e) => return e.into(),
     };
     let url = json["url"].as_str().unwrap_or("");
     if !is_valid_rss_url(url) {
@@ -168,9 +176,9 @@ pub fn handle_preview(request: &Request) -> Response {
 }
 
 pub fn handle_feed_create(request: &Request, tx: &Sender<Event>) -> Response {
-    let confirm: serde_json::Value = match rouille::input::json_input(request) {
+    let confirm = match json_body(request) {
         Ok(v) => v,
-        Err(e) => return HandlerError::BadRequest(format!("invalid JSON: {e}")).into(),
+        Err(e) => return e.into(),
     };
     let url = confirm["url"].as_str().unwrap_or("").to_string();
     if !is_valid_rss_url(&url) {
@@ -196,9 +204,9 @@ pub fn handle_feed_update(id: &str, request: &Request, tx: &Sender<Event>) -> Re
         Ok(id) => id,
         Err(_) => return HandlerError::BadRequest("invalid id".into()).into(),
     };
-    let update: serde_json::Value = match rouille::input::json_input(request) {
+    let update = match json_body(request) {
         Ok(v) => v,
-        Err(e) => return HandlerError::BadRequest(format!("invalid JSON: {e}")).into(),
+        Err(e) => return e.into(),
     };
     let name = update["name"].as_str().unwrap_or("").to_string();
     let season = update["season"].as_u64().unwrap_or(1) as u8;
