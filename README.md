@@ -47,11 +47,14 @@ Open `http://localhost:7893` in browser to subscribe and manage.
 | `ARIA2_RPC_URL` | `http://localhost:6800/jsonrpc` | Aria2 JSON-RPC endpoint |
 | `DOWNLOAD_DIR` | `/downloads` | Torrent staging directory |
 | `LIBRARY_DIR` | `/anime` | Media library output directory |
-| `DOWNLOADER` | `aria2` | `aria2` or `qbittorrent` |
+| `DOWNLOADER` | `aria2` | `aria2`, `qbittorrent`, or `transmission` |
 | `MOCK_DOWNLOADER` | `false` | Enable in-memory mock downloader (testing) |
 | `QBITTORRENT_URL` | `http://localhost:8080` | qBittorrent Web UI base URL |
 | `QBITTORRENT_USER` | `admin` | qBittorrent username |
 | `QBITTORRENT_PASS` | `adminadmin` | qBittorrent password |
+| `TRANSMISSION_RPC_URL` | `http://localhost:9091/transmission/rpc` | Transmission RPC endpoint |
+| `TRANSMISSION_USER` | — | Transmission HTTP Basic Auth username |
+| `TRANSMISSION_PASS` | — | Transmission HTTP Basic Auth password |
 | `BANGUMI_API_BASE` | `https://api.bgm.tv` | Bangumi API base URL |
 | `TORRENT_CONCURRENCY` | `4` | Worker pool threads (RSS + torrent downloads) |
 | `QUEUE_CAPACITY` | `512` | Worker pool job queue capacity |
@@ -63,6 +66,24 @@ Open `http://localhost:7893` in browser to subscribe and manage.
 | `WEBHOOK_FORMAT` | — | Preset name: `bark`, `gotify`, or `serverchan` |
 | `WEBHOOK_TEMPLATE` | — | Custom JSON/Form template (overrides preset) |
 | `WEBHOOK_ERROR_TEMPLATE` | — | Custom error template (overrides default error format) |
+
+## Downloader Selection
+
+| Downloader | rename_file | move_files | Seeding Retention | Recommended For |
+|---|---|---|---|---|
+| **Transmission** (4.1.0+) | ✅ `torrent_rename_path` | ✅ `torrent_set_location` | ✅ | Router / NAS, default recommendation |
+| **qBittorrent** | ✅ `torrents/renameFile` | ✅ `torrents/setLocation` | ✅ | x86 soft-router / NAS (≥512MB RAM) |
+| **aria2** | ❌ no BT multi-file rename | ❌ no built-in move API | ❌ stops immediately after completion | Lightweight direct downloads, or fallback |
+
+### aria2 BitTorrent Limitations
+
+aria2 has the following known limitations with BitTorrent torrents:
+
+1. **No torrent file rename**: `changeOption("out")` only works for single-file HTTP downloads, not BT multi-file torrents. bangumi-rss falls back to filesystem operations (`fs.move_file`) when aria2 is detected.
+2. **No downloader-aware move**: aria2 has no equivalent of `torrent_set_location` or `setLocation`. After moving files, the downloader is unaware of the new location.
+3. **Seeding interrupted**: Due to the above limitations, aria2 torrents are stopped and removed from the list after completion, then moved via the filesystem. This **violates BT sharing etiquette** — if you want to keep seeding, use Transmission or qBittorrent.
+
+> **Recommendation**: If your downloads are primarily BitTorrent, prefer **Transmission**. Its JSON-RPC 2.0 interface is well-documented, memory usage is low (15-25MB idle), it has an official OpenWrt package, and supports `rename_path` + `set_location` to avoid interrupting seeding.
 
 ## Notifications
 

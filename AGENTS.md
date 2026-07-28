@@ -28,10 +28,13 @@ docker run -p 7893:7893 -v /path/to/downloads:/downloads -v /path/to/anime:/anim
 | `DOWNLOAD_DIR` | — | Torrent download staging directory |
 | `LIBRARY_DIR` | — | Media library output directory |
 | `MOCK_DOWNLOADER` | — | Set to enable in‑memory mock downloader |
-| `DOWNLOADER` | `aria2` | `aria2` or `qbittorrent` |
+| `DOWNLOADER` | `aria2` | `aria2`, `qbittorrent`, or `transmission` |
 | `QBITTORRENT_URL` | `http://localhost:8080` | qBittorrent Web UI base URL |
 | `QBITTORRENT_USER` | `admin` | qBittorrent username |
 | `QBITTORRENT_PASS` | `adminadmin` | qBittorrent password |
+| `TRANSMISSION_RPC_URL` | `http://localhost:9091/transmission/rpc` | Transmission RPC endpoint |
+| `TRANSMISSION_USER` | — | Transmission HTTP Basic Auth username |
+| `TRANSMISSION_PASS` | — | Transmission HTTP Basic Auth password |
 
 ## Architecture: TEA (The Elm Architecture)
 
@@ -77,6 +80,7 @@ Event Sources (timers, server)
 | `services/mod.rs` | `EffectExecutor<R,D,F,N,B>` — generic effect runner |
 | `services/downloader.rs` | `Aria2Downloader` — stateless JSON-RPC client, paginated gid lookup (1 test) |
 | `services/qbittorrent.rs` | `QbittorrentDownloader` — Web API client with SID cookie auth |
+| `services/transmission.rs` | `TransmissionDownloader` — JSON-RPC 2.0 client with CSRF session handling |
 | `services/mock.rs` | `MockDownloader`, `MockFileSystem` (all use `Mutex` for thread safety) |
 | `services/fs.rs` | `RealFileSystem` — thin `std::fs` wrapper |
 | `services/notify.rs` | `NoopNotifier` (Server酱 TODO) |
