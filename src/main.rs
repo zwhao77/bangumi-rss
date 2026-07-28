@@ -116,9 +116,10 @@ fn main() -> anyhow::Result<()> {
             true
         });
     }
+    let poll_interval = Duration::from_secs(config.poll_interval);
     {
         let tx = event_tx.clone();
-        tm.add(Duration::from_secs(30), move || {
+        tm.add(poll_interval, move || {
             if tx.send(Event::PollDownloader).is_err() {
                 log::error!("logic channel disconnected, poll dropped");
                 return false;

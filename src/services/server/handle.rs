@@ -144,8 +144,12 @@ pub fn handle_style_css(fs: &dyn FileOps) -> Response {
     Response::from_data("text/css", css)
 }
 
-pub fn handle_preview(body: &str) -> Response {
-    let url = body.trim();
+pub fn handle_preview(request: &Request) -> Response {
+    let json: serde_json::Value = match rouille::input::json_input(request) {
+        Ok(v) => v,
+        Err(e) => return HandlerError::BadRequest(format!("invalid JSON: {e}")).into(),
+    };
+    let url = json["url"].as_str().unwrap_or("");
     if !is_valid_rss_url(url) {
         return ApiResult::<crate::types::FeedPreview>::Err {
             code: http_code::BAD_REQUEST,
@@ -163,8 +167,11 @@ pub fn handle_preview(body: &str) -> Response {
     }
 }
 
-pub fn handle_feed_create(body: &str, tx: &Sender<Event>) -> Response {
-    let confirm: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+pub fn handle_feed_create(request: &Request, tx: &Sender<Event>) -> Response {
+    let confirm: serde_json::Value = match rouille::input::json_input(request) {
+        Ok(v) => v,
+        Err(e) => return HandlerError::BadRequest(format!("invalid JSON: {e}")).into(),
+    };
     let url = confirm["url"].as_str().unwrap_or("").to_string();
     if !is_valid_rss_url(&url) {
         return HandlerError::BadRequest("invalid URL".into()).into();
@@ -184,12 +191,15 @@ pub fn handle_feed_create(body: &str, tx: &Sender<Event>) -> Response {
     })
 }
 
-pub fn handle_feed_update(id: &str, body: &str, tx: &Sender<Event>) -> Response {
+pub fn handle_feed_update(id: &str, request: &Request, tx: &Sender<Event>) -> Response {
     let feed_id = match uuid::Uuid::parse_str(id) {
         Ok(id) => id,
         Err(_) => return HandlerError::BadRequest("invalid id".into()).into(),
     };
-    let update: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+    let update: serde_json::Value = match rouille::input::json_input(request) {
+        Ok(v) => v,
+        Err(e) => return HandlerError::BadRequest(format!("invalid JSON: {e}")).into(),
+    };
     let name = update["name"].as_str().unwrap_or("").to_string();
     let season = update["season"].as_u64().unwrap_or(1) as u8;
     let bangumi_info: Option<BangumiInfo> = update
@@ -213,23 +223,23 @@ pub fn handle_feed_delete(id: &str, tx: &Sender<Event>) -> Response {
     query_api_result(tx, |reply_tx| Event::ApiRemoveFeed { feed_id, reply_tx })
 }
 
-pub fn handle_list_feeds(tx: &Sender<Event>) -> Response {
+pub fn handle_feeds_list(tx: &Sender<Event>) -> Response {
     query_api_result(tx, |reply_tx| Event::ApiListFeeds { reply_tx })
 }
 
-pub fn handle_list_downloads(tx: &Sender<Event>) -> Response {
+pub fn handle_downloads_list(tx: &Sender<Event>) -> Response {
     query_api_result(tx, |reply_tx| Event::ApiListDownloads { reply_tx })
 }
 
-pub fn handle_refresh(tx: &Sender<Event>) -> Response {
+pub fn handle_downloads_refresh(tx: &Sender<Event>) -> Response {
     fire_event(tx, Event::RefreshDownloads, "refresh triggered")
 }
 
-pub fn handle_feed_update_all(tx: &Sender<Event>) -> Response {
+pub fn handle_feeds_refresh(tx: &Sender<Event>) -> Response {
     fire_event(tx, Event::RssTickAll, "RSS refresh triggered")
 }
 
-pub fn handle_poll(tx: &Sender<Event>) -> Response {
+pub fn handle_downloads_poll(tx: &Sender<Event>) -> Response {
     fire_event(tx, Event::PollDownloader, "downloader poll triggered")
 }
 
@@ -393,7 +403,7 @@ mod tests {
     fn handle_list_feeds_timeout() {
         let (tx, rx) = crossbeam_channel::bounded::<Event>(1);
         drop(rx);
-        let resp = handle_list_feeds(&tx);
+        let resp = handle_feeds_list(&tx);
         assert_eq!(resp.status_code, 503);
     }
 
@@ -401,7 +411,7 @@ mod tests {
     fn handle_list_downloads_timeout() {
         let (tx, rx) = crossbeam_channel::bounded::<Event>(1);
         drop(rx);
-        let resp = handle_list_downloads(&tx);
+        let resp = handle_downloads_list(&tx);
         assert_eq!(resp.status_code, 503);
     }
 
@@ -461,7 +471,7 @@ mod tests {
     #[test]
     fn handle_poll_success() {
         let (tx, rx) = crossbeam_channel::bounded::<Event>(1);
-        let resp = handle_poll(&tx);
+        let resp = handle_downloads_poll(&tx);
         assert_eq!(resp.status_code, 200);
         assert!(rx.try_recv().is_ok());
     }
@@ -469,7 +479,7 @@ mod tests {
     #[test]
     fn handle_refresh_success() {
         let (tx, rx) = crossbeam_channel::bounded::<Event>(1);
-        let resp = handle_refresh(&tx);
+        let resp = handle_downloads_refresh(&tx);
         assert_eq!(resp.status_code, 200);
         assert!(matches!(rx.try_recv(), Ok(Event::RefreshDownloads)));
     }

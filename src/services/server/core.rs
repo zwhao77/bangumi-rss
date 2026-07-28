@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::core::event::Event;
 use crate::services::server::ServerConfig;
 use crate::services::server::handle::*;
-use crate::services::server::utils::{check_auth, truncate};
+use crate::services::server::utils::check_auth;
 use crate::traits::{FileOps, TorrentDownloader};
 
 pub fn start_server(
@@ -88,8 +88,7 @@ fn handle_request(
 ) -> Response {
     let method = request.method().to_uppercase();
     let url = request.url().to_string();
-    let body = rouille::input::plain_text_body(request).unwrap_or_default();
-    log::debug!("-> {method} {url} body={}", truncate(&body, 200));
+    log::debug!("-> {method} {url}");
 
     // Handle paths with dots before the router macro (rouille router treats `.` as special).
     if url == "/style.css" {
@@ -100,22 +99,20 @@ fn handle_request(
         (GET) (/) => { handle_index(fs) },
 
         // ═══ /api/feeds ═══
-        (GET) (/api/feeds) => { handle_list_feeds(tx) },
-        (POST) (/api/feeds) => { handle_feed_create(&body, tx) },
-        (POST) (/api/feeds/update) => { handle_feed_update_all(tx) },
-        (PUT) (/api/feeds/{id: String}) => { handle_feed_update(&id, &body, tx) },
+        (GET) (/api/feeds) => { handle_feeds_list(tx) },
+        (POST) (/api/feeds) => { handle_feed_create(request, tx) },
+        (POST) (/api/feeds/refresh) => { handle_feeds_refresh(tx) },
+        (PUT) (/api/feeds/{id: String}) => { handle_feed_update(&id, request, tx) },
         (DELETE) (/api/feeds/{id: String}) => { handle_feed_delete(&id, tx) },
-        (POST) (/api/feeds/preview) => { handle_preview(&body) },
+        (POST) (/api/feeds/preview) => { handle_preview(request) },
 
         // ═══ /api/files ═══
         (GET) (/api/files/{infohash: String}) => { handle_file_stream(&infohash, tx, fs, request) },
 
         // ═══ /api/downloads ═══
-        (GET) (/api/downloads) => { handle_list_downloads(tx) },
-        (POST) (/api/downloads/refresh) => { handle_refresh(tx) },
-
-        // ═══ /api/poll ═══
-        (POST) (/api/poll) => { handle_poll(tx) },
+        (GET) (/api/downloads) => { handle_downloads_list(tx) },
+        (POST) (/api/downloads/refresh) => { handle_downloads_refresh(tx) },
+        (POST) (/api/downloads/poll) => { handle_downloads_poll(tx) },
 
         // ═══ /api/bangumi ═══
         (GET) (/api/bangumi/subjects/{id: String}) => { handle_bangumi_subject(&id) },

@@ -163,6 +163,17 @@
     </div>
 
     <script>
+        // ── API helper ──
+        async function api(method, url, body, extra) {
+            const opts = { method, ...(extra || {}) };
+            if (body !== undefined) {
+                opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+                opts.body = JSON.stringify(body);
+            }
+            const resp = await fetch(url, opts);
+            return resp.json();
+        }
+
         // ============ 统一卡片构建函数 ============
         function buildAnimeCard(bangumiInfo, extra = {}) {
             const { season, rssUrl } = extra;
@@ -295,8 +306,7 @@
             btn.textContent = '加载中…';
             document.getElementById('result').style.display = 'none';
             try {
-                const resp = await fetch('/api/feeds/preview', { method: 'POST', body: url });
-                const result = await resp.json();
+                const result = await api('POST', '/api/feeds/preview', { url });
                 if (!result.success) {
                     throw new Error(result.message || `HTTP ${resp.status}`);
                 }
@@ -311,9 +321,7 @@
                     onSave: async (editedInfo) => {
                         const name = editedInfo.feedName || data.suggested_name || editedInfo.name_cn || '';
                         const season = document.getElementById('modalSeason').value.trim() || undefined;
-                        const body = JSON.stringify({ url: pendingUrl, name, season, bangumi_info: editedInfo });
-                        const resp = await fetch('/api/feeds', { method: 'POST', body });
-                        const result = await resp.json();
+                        const result = await api('POST', '/api/feeds', { url: pendingUrl, name, season, bangumi_info: editedInfo });
                         document.getElementById('result').style.display = 'block';
                         document.getElementById('result').innerHTML = result.success
                             ? `<p style="color:green">✅ 订阅成功</p><p class="label">Feed ID: ${result.data}</p>`
@@ -333,7 +341,7 @@
 
         async function refreshRss() {
             try {
-                await fetch('/api/feeds/update', { method: 'POST' });
+                await api('POST', '/api/feeds/refresh');
             } catch (e) { }
             loadFeeds();
         }
@@ -374,8 +382,7 @@
                                         info: sd.data,
                                         feedName: f.name,
                                         onSave: async (editedInfo) => {
-                                            const body = JSON.stringify({ name: editedInfo.feedName || f.name, season: editedInfo.season || f.season, bangumi_info: editedInfo });
-                                            await fetch('/api/feeds/' + f.id, { method: 'PUT', body });
+                                            await api('PUT', '/api/feeds/' + f.id, { name: editedInfo.feedName || f.name, season: editedInfo.season || f.season, bangumi_info: editedInfo });
                                             loadFeeds();
                                         }
                                     });
@@ -401,8 +408,7 @@
                                 season: f.season,
                                 feedName: f.name,
                                 onSave: async (editedInfo) => {
-                                    const body = JSON.stringify({ name: editedInfo.feedName || f.name, season: editedInfo.season || f.season, bangumi_info: editedInfo });
-                                    await fetch('/api/feeds/' + f.id, { method: 'PUT', body });
+                                    await api('PUT', '/api/feeds/' + f.id, { name: editedInfo.feedName || f.name, season: editedInfo.season || f.season, bangumi_info: editedInfo });
                                     loadFeeds();
                                 }
                             });
@@ -415,7 +421,7 @@
 
         async function refreshAndLoad() {
             try {
-                await fetch('/api/downloads/refresh', { method: 'POST' });
+                await api('POST', '/api/downloads/refresh');
                 loadDownloads();
             } catch (e) { }
         }

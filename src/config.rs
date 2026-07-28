@@ -37,6 +37,8 @@ pub struct Config {
     pub mock_downloader: bool,
     #[envconfig(from = "RSS_INTERVAL", default = "900")]
     pub rss_interval: u64,
+    #[envconfig(from = "POLL_INTERVAL", default = "30")]
+    pub poll_interval: u64,
     #[envconfig(from = "ARIA2_RPC_URL", default = "http://localhost:6800/jsonrpc")]
     pub aria2_rpc_url: String,
     #[envconfig(from = "ARIA2_RPC_TOKEN", default = "")]
@@ -47,7 +49,10 @@ pub struct Config {
     pub qbittorrent_user: String,
     #[envconfig(from = "QBITTORRENT_PASS", default = "adminadmin")]
     pub qbittorrent_pass: String,
-    #[envconfig(from = "TRANSMISSION_RPC_URL", default = "http://localhost:9091/transmission/rpc")]
+    #[envconfig(
+        from = "TRANSMISSION_RPC_URL",
+        default = "http://localhost:9091/transmission/rpc"
+    )]
     pub transmission_rpc_url: String,
     #[envconfig(from = "TRANSMISSION_USER", default = "")]
     pub transmission_user: String,
@@ -161,8 +166,7 @@ mod tests {
 
     #[test]
     fn invalid_downloader() {
-        let err =
-            Config::init_from_hashmap(&hashmap(&[("DOWNLOADER", "rutracker")])).unwrap_err();
+        let err = Config::init_from_hashmap(&hashmap(&[("DOWNLOADER", "rutracker")])).unwrap_err();
         assert!(
             err.to_string().contains("DOWNLOADER"),
             "unexpected error: {err}"

@@ -24,6 +24,7 @@ docker run -p 7893:7893 -v /path/to/downloads:/downloads -v /path/to/anime:/anim
 | `PORT` | `7893` | HTTP API server port |
 | `DATA_DIR` | `.` | State persistence directory (`state.json`) |
 | `RSS_INTERVAL` | `900` | RSS poll interval in seconds |
+| `POLL_INTERVAL` | `30` | Download status poll interval in seconds |
 | `ARIA2_RPC_URL` | `http://localhost:6800/jsonrpc` | Aria2 JSON-RPC endpoint |
 | `DOWNLOAD_DIR` | — | Torrent download staging directory |
 | `LIBRARY_DIR` | — | Media library output directory |
