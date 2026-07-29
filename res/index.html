@@ -443,9 +443,9 @@
                     const seasonTag = d.season ? `<span class="tag">${d.season}</span>` : '';
                     const st = d.state.toLowerCase();
                     const playable = st === 'completed' || st === 'seeding';
-                    const playBtn = playable ? `<button class="btn btn-sm" onclick="openPlayer('${d.infohash}','${(d.feed_name || d.name).replace(/'/g, "\\'")}')" style="margin-left:6px">▶ 播放</button>` : '';
+                    const playBtn = playable ? `<button class="btn btn-sm" onclick="openPlayer('${d.infohash}','${d.name.replace(/'/g, "\\'")}')" style="margin-left:6px">▶ 播放</button>` : '';
                     return `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px">
-            <strong style="flex:1;min-width:0">${d.feed_name || d.name}</strong>
+            <strong style="flex:1;min-width:0">${d.name}</strong>
             <span class="tag">${d.state}</span>
             ${seasonTag}
             ${playBtn}
