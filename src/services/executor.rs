@@ -243,25 +243,35 @@ impl EffectExecutor {
 
         // Step 2: Try downloader-mediated pause + rename + move.
         // If any step fails, fall back to filesystem operations.
-        if self
+        let succeeded = self
             .try_downloader_ops(infohash, &resolved, &season_dir)
             .is_ok()
-        {
+            || self.try_filesystem_fallback(infohash, &resolved).is_ok();
+
+        if succeeded {
             log::info!(
-                "completed via downloader ops: {}",
+                "completed: {}",
                 &infohash[..infohash.len().min(16)]
             );
-        } else if let Err(e) = self.try_filesystem_fallback(infohash, &resolved) {
-            log::warn!("filesystem fallback also failed: {e}");
-        }
 
-        // Step 4: Emit EpisodeMovedToLibrary events.
-        for r in &resolved {
+            // Step 3: Emit EpisodeMovedToLibrary events.
+            for r in &resolved {
+                self.event_tx
+                    .send(Event::EpisodeMovedToLibrary {
+                        infohash: infohash.to_string(),
+                        episode: r.key.episode,
+                        library_path: r.to.to_string_lossy().to_string(),
+                    })
+                    .ok();
+            }
+        } else {
+            log::warn!(
+                "both downloader ops and filesystem fallback failed for {}",
+                &infohash[..infohash.len().min(16)]
+            );
             self.event_tx
-                .send(Event::EpisodeMovedToLibrary {
+                .send(Event::EpisodeHandleFailed {
                     infohash: infohash.to_string(),
-                    episode: r.key.episode,
-                    library_path: r.to.to_string_lossy().to_string(),
                 })
                 .ok();
         }

@@ -407,7 +407,7 @@ impl TorrentDownloader for TransmissionDownloader {
             let error = t["error"].as_i64().unwrap_or(0);
             let err_str = t["error_string"].as_str().unwrap_or("");
             if status == 0
-                && error != 0
+                && error >= 3
                 && let Some(hash) = t["hash_string"].as_str()
             {
                 log::warn!(

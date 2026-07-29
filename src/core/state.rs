@@ -106,6 +106,14 @@ impl AppState {
         self
     }
 
+    /// Mark a download as failed to process — files not moved to library.
+    pub fn with_download_failed(mut self, infohash: &str) -> Self {
+        if let Some(r) = self.tracker.get_mut(infohash) {
+            r.status = RecordStatus::Failed;
+        }
+        self
+    }
+
     /// Remove a feed and all related tracker entries.
     pub fn with_feed_removed(mut self, id: Uuid) -> Self {
         self.feeds.remove(&id);

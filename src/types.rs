@@ -131,6 +131,8 @@ pub enum RecordStatus {
     Resolved,
     /// File moved into the media library.
     InLibrary,
+    /// HandleCompleted processing failed — file not moved to library.
+    Failed,
 }
 
 /// Feed preview — returned to the web UI before user confirms subscription.

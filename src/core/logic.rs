@@ -39,6 +39,7 @@ pub fn reduce(state: &AppState, event: Event) -> (AppState, Vec<Effect>) {
             episode,
             library_path,
         } => reduce_episode_completed(state, &infohash, episode, library_path),
+        Event::EpisodeHandleFailed { infohash } => reduce_episode_handle_failed(state, &infohash),
         Event::UserConfirm {
             feed_id,
             name,
@@ -199,7 +200,9 @@ fn reduce_downloader_notification(
 
             // Skip if already handled — prevents loops when downloader
             // re-detects paused/seeding torrents (Transmission/qBittorrent).
-            if record.status == RecordStatus::InLibrary {
+            if record.status == RecordStatus::InLibrary
+                || record.status == RecordStatus::Failed
+            {
                 log::debug!(
                     "download already in library, skipping: {}",
                     &infohash[..infohash.len().min(16)]
@@ -303,6 +306,21 @@ fn reduce_episode_completed(
 
     // Place effects after state update so save happens first.
     (new_state, effects)
+}
+
+/// Executor failed to move files to library — mark as Failed.
+fn reduce_episode_handle_failed(
+    state: &AppState,
+    infohash: &str,
+) -> (AppState, Vec<Effect>) {
+    if !state.tracker.contains_key(infohash) {
+        log::warn!("EpisodeHandleFailed for unknown infohash: {infohash}");
+        return (state.clone(), vec![]);
+    }
+
+    log::warn!("episode handle failed, marking as Failed: {infohash}");
+    let new_state = state.clone().with_download_failed(infohash);
+    (new_state, vec![])
 }
 
 /// User confirmed the anime name + season via the web UI.
