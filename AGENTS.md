@@ -137,7 +137,7 @@ PollDownloader (every 30s) → Effect::PollCompleted
     → Event::DownloaderNotification { Completed }
       → logic: Effect::HandleCompleted
         → executor: list_files → handler::resolve_files → move → rename
-          → Event::EpisodeCompleted → logic: status = InLibrary + Notify
+          → Event::EpisodeMovedToLibrary → logic: status = InLibrary + Notify
 ```
 
 ## API Endpoints

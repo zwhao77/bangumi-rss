@@ -6,7 +6,7 @@
 
 use std::sync::Mutex;
 
-use crate::traits::TorrentDownloader;
+use crate::traits::{OpResult, TorrentDownloader};
 use crate::types::{CompletedDownload, DownloadSnapshot, DownloadState, TorrentFile};
 
 // ── Mock downloader ──
@@ -78,26 +78,26 @@ impl TorrentDownloader for MockDownloader {
         _infohash: &str,
         _old_path: &str,
         _new_name: &str,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<OpResult> {
         // MockDownloader simulates aria2 behaviour: no downloader rename support.
         // Caller should fall back to filesystem rename.
         log::debug!("[mock-dl] rename not supported → using filesystem fallback");
-        Ok(false)
+        Ok(OpResult::Unsupported)
     }
 
-    fn move_files(&self, _infohash: &str, _new_location: &str) -> anyhow::Result<bool> {
+    fn move_files(&self, _infohash: &str, _new_location: &str) -> anyhow::Result<OpResult> {
         log::debug!("[mock-dl] move not supported → using filesystem fallback");
-        Ok(false)
+        Ok(OpResult::Unsupported)
     }
 
-    fn pause(&self, infohash: &str) -> anyhow::Result<bool> {
+    fn pause(&self, infohash: &str) -> anyhow::Result<()> {
         log::debug!("[mock-dl] pause: {infohash}");
-        Ok(true)
+        Ok(())
     }
 
-    fn remove(&self, infohash: &str, _delete_files: bool) -> anyhow::Result<bool> {
+    fn remove(&self, infohash: &str, _delete_files: bool) -> anyhow::Result<()> {
         log::debug!("[mock-dl] remove: {infohash}");
-        Ok(true)
+        Ok(())
     }
 
     fn poll_completed(&self) -> anyhow::Result<Vec<CompletedDownload>> {

@@ -6,9 +6,9 @@
 
 use std::sync::Mutex;
 
-use base64::Engine;
-use crate::traits::TorrentDownloader;
+use crate::traits::{OpResult, TorrentDownloader};
 use crate::types::{CompletedDownload, DownloadSnapshot, DownloadState, TorrentFile};
+use base64::Engine;
 
 /// Concrete downloader backed by Transmission's RPC API.
 pub struct TransmissionDownloader {
@@ -31,15 +31,8 @@ impl TransmissionDownloader {
 
     // ── Low-level JSON-RPC 2.0 ──
 
-    fn rpc(&self, method: &str, params: &serde_json::Value) -> Option<serde_json::Value> {
-        let payload = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": method,
-            "params": params,
-        });
-        let payload_str = serde_json::to_string(&payload).ok()?;
-
+    /// Build a ureq POST request with common headers (Content-Type, auth, cached CSRF session).
+    fn build_request(&self) -> ureq::Request {
         let req = ureq::post(&self.rpc_url)
             .set("Content-Type", "application/json")
             .timeout(std::time::Duration::from_secs(
@@ -58,50 +51,102 @@ impl TransmissionDownloader {
             req
         };
 
-        // Add CSRF session id if we have one.
-        let req = if let Some(ref sid) = *self.session_id.lock().unwrap() {
-            req.set("X-Transmission-Session-Id", sid)
+        // CSRF session id: always read from cache.
+        // The 409 handler writes the new id to cache before retrying,
+        // so the retry path picks it up automatically.
+        let sid = {
+            self.session_id
+                .lock()
+                .unwrap_or_else(|poisoned| {
+                    log::warn!("[transmission] session_id mutex was poisoned, recovering");
+                    poisoned.into_inner()
+                })
+                .clone()
+        };
+        if let Some(ref s) = sid {
+            log::debug!("[transmission] using session_id: {s}");
+            req.set("X-Transmission-Session-Id", s)
         } else {
             req
-        };
-
-        let resp = req.send_string(&payload_str).ok()?;
-
-        // Handle CSRF 409: extract session id from headers and retry once.
-        if resp.status() == 409 {
-            let new_sid = resp
-                .header("X-Transmission-Session-Id")
-                .map(String::from)?;
-            *self.session_id.lock().unwrap() = Some(new_sid.clone());
-
-            let retry_req = ureq::post(&self.rpc_url)
-                .set("Content-Type", "application/json")
-                .set("X-Transmission-Session-Id", &new_sid)
-                .timeout(std::time::Duration::from_secs(
-                    crate::config::HTTP_TIMEOUT_SECS,
-                ));
-            let retry_req = if !self.username.is_empty() {
-                let auth = format!(
-                    "Basic {}",
-                    base64::engine::general_purpose::STANDARD
-                        .encode(format!("{}:{}", self.username, self.password))
-                );
-                retry_req.set("Authorization", &auth)
-            } else {
-                retry_req
-            };
-            let retry_resp = retry_req.send_string(&payload_str).ok()?;
-            return retry_resp.into_json().ok();
         }
-
-        let body: serde_json::Value = resp.into_json().ok()?;
-        if body.get("error").is_some() {
-            return None;
-        }
-        // JSON-RPC 2.0: result is directly under "result" key.
-        Some(body["result"].clone())
     }
 
+    /// Send a JSON-RPC request; returns the parsed "result" field on success.
+    /// Handles CSRF 409 transparently via automatic retry.
+    fn rpc(&self, method: &str, params: &serde_json::Value) -> Option<serde_json::Value> {
+        let payload = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": method,
+            "params": params,
+        });
+        let payload_str = serde_json::to_string(&payload).ok()?;
+        log::debug!("[transmission] >>> rpc call: {method}");
+
+        // First attempt: use cached session_id (if any).
+        match self.build_request().send_string(&payload_str) {
+            Ok(resp) => {
+                let body: serde_json::Value = resp.into_json().ok()?;
+                if body.get("error").is_some() {
+                    log::warn!(
+                        "[transmission] rpc {method}: error in response: {}",
+                        body["error"]
+                    );
+                    return None;
+                }
+                log::debug!("[transmission] <<< rpc {method} result: {}", body["result"]);
+                Some(body["result"].clone())
+            }
+            Err(ureq::Error::Status(409, resp)) => {
+                // CSRF challenge: extract session id from headers and retry once.
+                let new_sid = resp
+                    .header("X-Transmission-Session-Id")
+                    .map(String::from)
+                    .unwrap_or_default();
+                if new_sid.is_empty() {
+                    log::warn!(
+                        "[transmission] rpc {method}: got 409 but no X-Transmission-Session-Id header"
+                    );
+                    return None;
+                }
+                log::info!("[transmission] CSRF 409, got session_id, retrying once");
+                {
+                    match self.session_id.lock() {
+                        Ok(mut guard) => *guard = Some(new_sid.clone()),
+                        Err(poisoned) => {
+                            log::warn!(
+                                "[transmission] session_id mutex poisoned, recovering and updating"
+                            );
+                            *poisoned.into_inner() = Some(new_sid.clone());
+                        }
+                    }
+                }
+
+                match self.build_request().send_string(&payload_str) {
+                    Ok(retry_resp) => {
+                        let retry_body: serde_json::Value = retry_resp.into_json().ok()?;
+                        log::debug!("[transmission] <<< rpc {method} retry response: {retry_body}");
+                        if retry_body.get("error").is_some() {
+                            log::warn!(
+                                "[transmission] rpc {method} retry: error in response: {}",
+                                retry_body["error"]
+                            );
+                            return None;
+                        }
+                        Some(retry_body["result"].clone())
+                    }
+                    Err(e) => {
+                        log::warn!("[transmission] rpc {method} retry after 409 also failed: {e}");
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("[transmission] rpc {method} request failed: {e}");
+                None
+            }
+        }
+    }
 }
 
 impl TorrentDownloader for TransmissionDownloader {
@@ -119,10 +164,14 @@ impl TorrentDownloader for TransmissionDownloader {
             .and_then(|r| r["torrent_added"].as_object())
             .ok_or_else(|| anyhow::anyhow!("transmission: torrent_add returned no result"))?;
 
-        added["hash_string"]
+        let hash = added["hash_string"]
             .as_str()
             .map(String::from)
-            .ok_or_else(|| anyhow::anyhow!("transmission: no hash_string in torrent_add response"))
+            .ok_or_else(|| {
+                anyhow::anyhow!("transmission: no hash_string in torrent_add response")
+            })?;
+        log::info!("[transmission] add_uri: uri={uri}, infohash={hash}");
+        Ok(hash)
     }
 
     fn add_torrent_bytes(&self, data: &[u8], dir: &str) -> anyhow::Result<String> {
@@ -135,21 +184,34 @@ impl TorrentDownloader for TransmissionDownloader {
                 "paused": false,
             }),
         );
+        let is_dup = result
+            .as_ref()
+            .and_then(|r| r["torrent_duplicate"].as_object())
+            .is_some();
         let added = result
             .as_ref()
             .and_then(|r| r["torrent_added"].as_object())
             .or_else(|| {
-                // Duplicate torrent: check for torrent_duplicate key.
                 result
                     .as_ref()
                     .and_then(|r| r["torrent_duplicate"].as_object())
             })
-            .ok_or_else(|| anyhow::anyhow!("transmission: torrent_add (bytes) returned no result"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("transmission: torrent_add (bytes) returned no result")
+            })?;
 
-        added["hash_string"]
+        let hash = added["hash_string"]
             .as_str()
             .map(String::from)
-            .ok_or_else(|| anyhow::anyhow!("transmission: no hash_string in add response"))
+            .ok_or_else(|| anyhow::anyhow!("transmission: no hash_string in add response"))?;
+        if is_dup {
+            log::info!(
+                "[transmission] add_torrent_bytes: duplicate torrent detected, infohash={hash}"
+            );
+        } else {
+            log::info!("[transmission] add_torrent_bytes: added, infohash={hash}");
+        }
+        Ok(hash)
     }
 
     fn list_files(&self, infohash: &str) -> anyhow::Result<Vec<TorrentFile>> {
@@ -169,12 +231,9 @@ impl TorrentDownloader for TransmissionDownloader {
             .first()
             .ok_or_else(|| anyhow::anyhow!("transmission: torrent not found: {infohash}"))?;
 
-        let files = torrent["files"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
+        let files = torrent["files"].as_array().cloned().unwrap_or_default();
 
-        Ok(files
+        let file_list: Vec<TorrentFile> = files
             .iter()
             .map(|f| {
                 let path = f["name"].as_str().unwrap_or("").to_string();
@@ -184,7 +243,19 @@ impl TorrentDownloader for TransmissionDownloader {
                     .unwrap_or_default();
                 TorrentFile { path, name }
             })
-            .collect())
+            .collect();
+        log::debug!(
+            "[transmission] list_files: infohash={infohash}, {} file(s)",
+            file_list.len()
+        );
+        for (i, f) in file_list.iter().enumerate() {
+            log::trace!(
+                "[transmission] list_files:   [{i}] path={}, name={}",
+                f.path,
+                f.name
+            );
+        }
+        Ok(file_list)
     }
 
     fn rename_file(
@@ -192,7 +263,7 @@ impl TorrentDownloader for TransmissionDownloader {
         infohash: &str,
         old_path: &str,
         new_name: &str,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<OpResult> {
         let result = self.rpc(
             "torrent_rename_path",
             &serde_json::json!({
@@ -201,10 +272,21 @@ impl TorrentDownloader for TransmissionDownloader {
                 "name": new_name,
             }),
         );
-        Ok(result.is_some())
+        match result {
+            Some(_) => {
+                log::info!(
+                    "[transmission] rename_file: infohash={infohash}, old_path={old_path}, new_name={new_name}"
+                );
+                Ok(OpResult::Done)
+            }
+            None => {
+                log::warn!("[transmission] rename_file failed: infohash={infohash}");
+                Ok(OpResult::Unsupported)
+            }
+        }
     }
 
-    fn move_files(&self, infohash: &str, new_location: &str) -> anyhow::Result<bool> {
+    fn move_files(&self, infohash: &str, new_location: &str) -> anyhow::Result<OpResult> {
         let result = self.rpc(
             "torrent_set_location",
             &serde_json::json!({
@@ -213,20 +295,40 @@ impl TorrentDownloader for TransmissionDownloader {
                 "move": true,
             }),
         );
-        Ok(result.is_some())
+        match result {
+            Some(_) => {
+                log::info!(
+                    "[transmission] move_files: infohash={infohash}, location={new_location}"
+                );
+                Ok(OpResult::Done)
+            }
+            None => {
+                log::warn!("[transmission] move_files failed: infohash={infohash}");
+                Ok(OpResult::Unsupported)
+            }
+        }
     }
 
-    fn pause(&self, infohash: &str) -> anyhow::Result<bool> {
+    fn pause(&self, infohash: &str) -> anyhow::Result<()> {
         let result = self.rpc(
             "torrent_stop",
             &serde_json::json!({
                 "ids": [infohash],
             }),
         );
-        Ok(result.is_some())
+        match result {
+            Some(_) => {
+                log::info!("[transmission] pause: infohash={infohash}");
+                Ok(())
+            }
+            None => {
+                log::warn!("[transmission] pause failed: infohash={infohash}");
+                Err(anyhow::anyhow!("transmission: pause failed for {infohash}"))
+            }
+        }
     }
 
-    fn remove(&self, infohash: &str, delete_files: bool) -> anyhow::Result<bool> {
+    fn remove(&self, infohash: &str, delete_files: bool) -> anyhow::Result<()> {
         let result = self.rpc(
             "torrent_remove",
             &serde_json::json!({
@@ -234,7 +336,20 @@ impl TorrentDownloader for TransmissionDownloader {
                 "delete_local_data": delete_files,
             }),
         );
-        Ok(result.is_some())
+        match result {
+            Some(_) => {
+                log::info!(
+                    "[transmission] remove: infohash={infohash}, delete_files={delete_files}"
+                );
+                Ok(())
+            }
+            None => {
+                log::warn!("[transmission] remove failed: infohash={infohash}");
+                Err(anyhow::anyhow!(
+                    "transmission: remove failed for {infohash}"
+                ))
+            }
+        }
     }
 
     fn poll_completed(&self) -> anyhow::Result<Vec<CompletedDownload>> {
@@ -254,14 +369,21 @@ impl TorrentDownloader for TransmissionDownloader {
         for t in &torrents {
             let status = t["status"].as_i64().unwrap_or(-1);
             let percent: f64 = t["percent_done"].as_f64().unwrap_or(0.0);
-            // Status 0 = stopped, 6 = seeding.  Both mean download is complete.
-            if (status == 0 || status == 6) && percent >= 1.0 {
-                if let Some(hash) = t["hash_string"].as_str() {
-                    completed.push(CompletedDownload {
-                        infohash: hash.to_string(),
-                    });
-                }
+            if (status == 0 || status == 6)
+                && percent >= 1.0
+                && let Some(hash) = t["hash_string"].as_str()
+            {
+                completed.push(CompletedDownload {
+                    infohash: hash.to_string(),
+                });
             }
+        }
+        log::debug!(
+            "[transmission] poll_completed: {} torrent(s) completed",
+            completed.len()
+        );
+        for c in &completed {
+            log::info!("[transmission] poll_completed: infohash={}", c.infohash);
         }
         Ok(completed)
     }
@@ -283,14 +405,23 @@ impl TorrentDownloader for TransmissionDownloader {
         for t in &torrents {
             let status = t["status"].as_i64().unwrap_or(-1);
             let error = t["error"].as_i64().unwrap_or(0);
-            if status == 0 && error != 0 {
-                if let Some(hash) = t["hash_string"].as_str() {
-                    failed.push(CompletedDownload {
-                        infohash: hash.to_string(),
-                    });
-                }
+            let err_str = t["error_string"].as_str().unwrap_or("");
+            if status == 0
+                && error != 0
+                && let Some(hash) = t["hash_string"].as_str()
+            {
+                log::warn!(
+                    "[transmission] poll_failed: infohash={hash}, error={error}, error_string={err_str}"
+                );
+                failed.push(CompletedDownload {
+                    infohash: hash.to_string(),
+                });
             }
         }
+        log::debug!(
+            "[transmission] poll_failed: {} torrent(s) failed",
+            failed.len()
+        );
         Ok(failed)
     }
 
@@ -328,24 +459,37 @@ impl TorrentDownloader for TransmissionDownloader {
                 _ => DownloadState::Waiting,
             };
 
+            let infohash = t["hash_string"].as_str().unwrap_or("").to_string();
+            let name = t["name"].as_str().unwrap_or("").to_string();
+            let progress = t["percent_done"].as_f64().unwrap_or(0.0) as f32;
             snapshots.push(DownloadSnapshot {
-                infohash: t["hash_string"].as_str().unwrap_or("").to_string(),
-                state,
-                progress: t["percent_done"].as_f64().unwrap_or(0.0) as f32,
+                infohash: infohash.clone(),
+                state: state.clone(),
+                progress,
                 speed: t["rate_download"].as_u64().unwrap_or(0),
                 size: t["total_size"].as_u64().unwrap_or(0),
-                name: t["name"].as_str().unwrap_or("").to_string(),
+                name: name.clone(),
             });
+            log::trace!(
+                "[transmission] query_all: infohash={infohash}, name={name}, state={state:?}, progress={progress:.2}, status_code={status}"
+            );
         }
+        log::debug!("[transmission] query_all: {} torrent(s)", snapshots.len());
         Ok(snapshots)
     }
 
     fn check_connection(&self) -> anyhow::Result<()> {
-        let _ = self.rpc(
-            "session_get",
-            &serde_json::json!({ "fields": ["version"] }),
-        )
-        .ok_or_else(|| anyhow::anyhow!("transmission: session_get failed"))?;
-        Ok(())
+        let result = self.rpc("session_get", &serde_json::json!({ "fields": ["version"] }));
+        match result {
+            Some(v) => {
+                let version = v["version"].as_str().unwrap_or("unknown");
+                log::info!("[transmission] check_connection: connected, version={version}");
+                Ok(())
+            }
+            None => {
+                log::warn!("[transmission] check_connection: session_get failed");
+                Err(anyhow::anyhow!("transmission: session_get failed"))
+            }
+        }
     }
 }

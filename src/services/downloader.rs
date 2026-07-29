@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use crate::traits::TorrentDownloader;
+use crate::traits::{OpResult, TorrentDownloader};
 use crate::types::{CompletedDownload, DownloadSnapshot, TorrentFile};
 
 /// Concrete downloader backed by aria2's JSON-RPC API.
@@ -204,33 +204,33 @@ impl TorrentDownloader for Aria2Downloader {
         infohash: &str,
         _old_path: &str,
         _new_name: &str,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<OpResult> {
         // aria2's changeOption("out") only works for single-file HTTP downloads.
         // For BitTorrent multi-file downloads there is no rename API.
-        // Returning false signals the caller to fall back to filesystem rename.
+        // Returning Unsupported signals the caller to fall back to filesystem rename.
         let _ = infohash;
-        Ok(false)
+        Ok(OpResult::Unsupported)
     }
 
-    fn move_files(&self, _infohash: &str, _new_location: &str) -> anyhow::Result<bool> {
+    fn move_files(&self, _infohash: &str, _new_location: &str) -> anyhow::Result<OpResult> {
         // aria2 has no built-in move-directory command.
-        Ok(false)
+        Ok(OpResult::Unsupported)
     }
 
-    fn pause(&self, infohash: &str) -> anyhow::Result<bool> {
+    fn pause(&self, infohash: &str) -> anyhow::Result<()> {
         let gid = self.with_gid(infohash)?;
-        let result = self.rpc("forcePause", &[serde_json::json!(gid)]);
-        Ok(result.is_some())
+        self.rpc("forcePause", &[serde_json::json!(gid)])
+            .ok_or_else(|| anyhow::anyhow!("aria2: pause failed for {infohash}"))?;
+        Ok(())
     }
 
-    fn remove(&self, infohash: &str, _delete_files: bool) -> anyhow::Result<bool> {
-        // 1. Remove from active/waiting/paused list.
+    fn remove(&self, infohash: &str, _delete_files: bool) -> anyhow::Result<()> {
         let gid = self.with_gid(infohash)?;
-        let _ = self.rpc("remove", &[serde_json::json!(gid)]);
-        // 2. Clear from completed/error/removed records.
-        let _ = self.rpc("removeDownloadResult", &[serde_json::json!(gid)]);
-        // Always return true — even if the task was already removed.
-        Ok(true)
+        self.rpc("remove", &[serde_json::json!(gid)])
+            .ok_or_else(|| anyhow::anyhow!("aria2: remove failed for {infohash}"))?;
+        self.rpc("removeDownloadResult", &[serde_json::json!(gid)])
+            .ok_or_else(|| anyhow::anyhow!("aria2: removeDownloadResult failed for {infohash}"))?;
+        Ok(())
     }
 
     fn poll_completed(&self) -> anyhow::Result<Vec<CompletedDownload>> {

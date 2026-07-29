@@ -9,6 +9,18 @@ use crate::types::{CompletedDownload, TorrentFile};
 
 // ── Service traits ──
 
+/// Result of a downloader operation that may not be supported by the
+/// underlying downloader.  `Unsupported` tells the caller to fall back
+/// to an alternative (e.g. filesystem operations).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpResult {
+    /// The operation was completed successfully by the downloader.
+    Done,
+    /// The downloader does not support this operation.
+    /// The caller should fall back to an alternative implementation.
+    Unsupported,
+}
+
 /// Manages torrent downloads (add, list, rename, pause, move, remove).
 pub trait TorrentDownloader: Send + Sync {
     /// Add a torrent by URI (magnet or HTTP URL).
@@ -27,29 +39,31 @@ pub trait TorrentDownloader: Send + Sync {
     /// `old_path` is the torrent-relative path to rename (from `TorrentFile.path`).
     /// `new_name` is the new filename (last component only, NOT a full path).
     ///
-    /// Returns `Ok(true)` on success, `Ok(false)` if the downloader does not
-    /// support this operation (caller should fall back to filesystem rename).
+    /// Returns `OpResult::Done` on success, `OpResult::Unsupported` if the
+    /// downloader does not support this operation (caller should fall back
+    /// to filesystem rename).
     fn rename_file(
         &self,
         infohash: &str,
         old_path: &str,
         new_name: &str,
-    ) -> anyhow::Result<bool>;
+    ) -> anyhow::Result<OpResult>;
 
     /// Move all files of a torrent to a new directory.
     ///
-    /// Returns `Ok(true)` on success, `Ok(false)` if the downloader does not
-    /// support this operation (caller should fall back to filesystem move).
-    fn move_files(&self, infohash: &str, new_location: &str) -> anyhow::Result<bool>;
+    /// Returns `OpResult::Done` on success, `OpResult::Unsupported` if the
+    /// downloader does not support this operation (caller should fall back
+    /// to filesystem move).
+    fn move_files(&self, infohash: &str, new_location: &str) -> anyhow::Result<OpResult>;
 
     /// Pause (stop) a download task.  For BT downloads this also pauses seeding.
-    fn pause(&self, infohash: &str) -> anyhow::Result<bool>;
+    fn pause(&self, infohash: &str) -> anyhow::Result<()>;
 
     /// Remove a download task from the downloader.
     ///
     /// If `delete_files` is false, the downloaded data is preserved on disk.
     /// This is the common case when files have already been moved to the library.
-    fn remove(&self, infohash: &str, delete_files: bool) -> anyhow::Result<bool>;
+    fn remove(&self, infohash: &str, delete_files: bool) -> anyhow::Result<()>;
 
     /// Poll for recently completed downloads.
     fn poll_completed(&self) -> anyhow::Result<Vec<CompletedDownload>>;

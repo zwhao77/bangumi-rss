@@ -8,7 +8,7 @@
 
 use std::sync::Mutex;
 
-use crate::traits::TorrentDownloader;
+use crate::traits::{OpResult, TorrentDownloader};
 use crate::types::{CompletedDownload, DownloadSnapshot, DownloadState, TorrentFile};
 
 /// Concrete downloader backed by qBittorrent's Web API.
@@ -281,7 +281,7 @@ impl TorrentDownloader for QbittorrentDownloader {
         infohash: &str,
         old_path: &str,
         new_name: &str,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<OpResult> {
         self.post_form(
             "torrents/renameFile",
             &[
@@ -290,10 +290,10 @@ impl TorrentDownloader for QbittorrentDownloader {
                 ("newPath", new_name),
             ],
         );
-        Ok(true)
+        Ok(OpResult::Done)
     }
 
-    fn move_files(&self, infohash: &str, new_location: &str) -> anyhow::Result<bool> {
+    fn move_files(&self, infohash: &str, new_location: &str) -> anyhow::Result<OpResult> {
         self.post_form(
             "torrents/setLocation",
             &[
@@ -301,21 +301,23 @@ impl TorrentDownloader for QbittorrentDownloader {
                 ("location", new_location),
             ],
         );
-        Ok(true)
+        Ok(OpResult::Done)
     }
 
-    fn pause(&self, infohash: &str) -> anyhow::Result<bool> {
-        self.post_form("torrents/pause", &[("hashes", infohash)]);
-        Ok(true)
+    fn pause(&self, infohash: &str) -> anyhow::Result<()> {
+        self.post_form("torrents/pause", &[("hashes", infohash)])
+            .ok_or_else(|| anyhow::anyhow!("qbittorrent: pause failed for {infohash}"))?;
+        Ok(())
     }
 
-    fn remove(&self, infohash: &str, delete_files: bool) -> anyhow::Result<bool> {
+    fn remove(&self, infohash: &str, delete_files: bool) -> anyhow::Result<()> {
         let df = if delete_files { "true" } else { "false" };
         self.post_form(
             "torrents/delete",
             &[("hashes", infohash), ("deleteFiles", df)],
-        );
-        Ok(true)
+        )
+        .ok_or_else(|| anyhow::anyhow!("qbittorrent: remove failed for {infohash}"))?;
+        Ok(())
     }
 
     fn poll_completed(&self) -> anyhow::Result<Vec<CompletedDownload>> {

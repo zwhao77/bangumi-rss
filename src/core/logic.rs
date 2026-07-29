@@ -34,7 +34,7 @@ pub fn reduce(state: &AppState, event: Event) -> (AppState, Vec<Effect>) {
         Event::DownloaderNotification { infohash, status } => {
             reduce_downloader_notification(state, infohash, status)
         }
-        Event::EpisodeCompleted {
+        Event::EpisodeMovedToLibrary {
             infohash,
             episode,
             library_path,
@@ -197,6 +197,16 @@ fn reduce_downloader_notification(
                 }
             };
 
+            // Skip if already handled — prevents loops when downloader
+            // re-detects paused/seeding torrents (Transmission/qBittorrent).
+            if record.status == RecordStatus::InLibrary {
+                log::debug!(
+                    "download already in library, skipping: {}",
+                    &infohash[..infohash.len().min(16)]
+                );
+                return (state.clone(), vec![]);
+            }
+
             let effects = vec![Effect::HandleCompleted {
                 infohash,
                 feed_id: record.feed_id,
@@ -249,7 +259,7 @@ fn reduce_episode_completed(
     let record = match state.tracker.get(infohash) {
         Some(r) => r,
         None => {
-            log::warn!("EpisodeCompleted for unknown infohash: {infohash}");
+            log::warn!("EpisodeMovedToLibrary for unknown infohash: {infohash}");
             return (state.clone(), vec![]);
         }
     };

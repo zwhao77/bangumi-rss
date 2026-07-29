@@ -39,7 +39,7 @@ pub enum Event {
     },
 
     /// Executor resolved episode + moved file to library.
-    EpisodeCompleted {
+    EpisodeMovedToLibrary {
         infohash: String,
         episode: u32,
         library_path: String,
