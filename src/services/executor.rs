@@ -442,7 +442,7 @@ mod tests {
     use crate::core::effect::Effect;
     use crate::core::event::Event;
     use crate::core::state::AppState;
-    use crate::services::mock::{MockDownloader, MockFileSystem};
+    use crate::services::downloader::mock::{MockDownloader, MockFileSystem};
     use crate::types::{AnimeIdentity, EpisodeKey, EpisodeRecord, RecordStatus};
 
     #[test]

@@ -332,6 +332,6 @@ mod mock_fs {
 const DUMMY_FILE_SIZE: u64 = 1024 * 1024;
 
 /// Minimal valid H.264 MP4 file (2×2 black frame, ~40 ms) for mock video playback.
-const MINI_MP4: &[u8] = include_bytes!("../../res/mini.mp4");
+const MINI_MP4: &[u8] = include_bytes!("../../../res/mini.mp4");
 
 pub use mock_fs::MockFileSystem;
