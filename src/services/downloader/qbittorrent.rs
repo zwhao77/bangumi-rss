@@ -289,7 +289,8 @@ impl TorrentDownloader for QbittorrentDownloader {
                 ("oldPath", old_path),
                 ("newPath", new_name),
             ],
-        );
+        )
+        .ok_or_else(|| anyhow::anyhow!("qbittorrent: rename failed for {infohash}"))?;
         Ok(OpResult::Done)
     }
 
@@ -300,7 +301,8 @@ impl TorrentDownloader for QbittorrentDownloader {
                 ("hashes", infohash),
                 ("location", new_location),
             ],
-        );
+        )
+        .ok_or_else(|| anyhow::anyhow!("qbittorrent: move failed for {infohash}"))?;
         Ok(OpResult::Done)
     }
 

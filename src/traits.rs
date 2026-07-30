@@ -84,6 +84,9 @@ pub trait TorrentDownloader: Send + Sync {
 
 /// File-system operations abstracted for testability.
 pub trait FileOps: Send + Sync {
+    /// Check whether a path exists.
+    fn exists(&self, path: &Path) -> bool;
+
     /// Move (rename) a file from `from` to `to`.
     fn move_file(&self, from: &Path, to: &Path) -> anyhow::Result<()>;
 

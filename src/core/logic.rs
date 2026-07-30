@@ -200,9 +200,7 @@ fn reduce_downloader_notification(
 
             // Skip if already handled — prevents loops when downloader
             // re-detects paused/seeding torrents (Transmission/qBittorrent).
-            if record.status == RecordStatus::InLibrary
-                || record.status == RecordStatus::Failed
-            {
+            if record.status == RecordStatus::InLibrary || record.status == RecordStatus::Failed {
                 log::debug!(
                     "download already in library, skipping: {}",
                     &infohash[..infohash.len().min(16)]
@@ -309,10 +307,7 @@ fn reduce_episode_completed(
 }
 
 /// Executor failed to move files to library — mark as Failed.
-fn reduce_episode_handle_failed(
-    state: &AppState,
-    infohash: &str,
-) -> (AppState, Vec<Effect>) {
+fn reduce_episode_handle_failed(state: &AppState, infohash: &str) -> (AppState, Vec<Effect>) {
     if !state.tracker.contains_key(infohash) {
         log::warn!("EpisodeHandleFailed for unknown infohash: {infohash}");
         return (state.clone(), vec![]);

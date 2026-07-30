@@ -281,7 +281,7 @@ impl TorrentDownloader for TransmissionDownloader {
             }
             None => {
                 log::warn!("[transmission] rename_file failed: infohash={infohash}");
-                Ok(OpResult::Unsupported)
+                Err(anyhow::anyhow!("transmission: rename_file failed for {infohash}"))
             }
         }
     }
@@ -304,7 +304,7 @@ impl TorrentDownloader for TransmissionDownloader {
             }
             None => {
                 log::warn!("[transmission] move_files failed: infohash={infohash}");
-                Ok(OpResult::Unsupported)
+                Err(anyhow::anyhow!("transmission: move_files failed for {infohash}"))
             }
         }
     }

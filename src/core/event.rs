@@ -47,9 +47,7 @@ pub enum Event {
 
     /// Executor failed to move files to library (both downloader ops
     /// and filesystem fallback failed).
-    EpisodeHandleFailed {
-        infohash: String,
-    },
+    EpisodeHandleFailed { infohash: String },
 
     /// User confirmed anime name + season via web page.
     UserConfirm {

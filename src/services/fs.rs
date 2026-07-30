@@ -7,6 +7,10 @@ use crate::traits::FileOps;
 pub struct RealFileSystem;
 
 impl FileOps for RealFileSystem {
+    fn exists(&self, path: &Path) -> bool {
+        path.exists()
+    }
+
     fn move_file(&self, from: &Path, to: &Path) -> anyhow::Result<()> {
         // Try rename first (fast, same filesystem).
         if std::fs::rename(from, to).is_ok() {

@@ -17,11 +17,15 @@ use crate::types::{CompletedDownload, DownloadSnapshot, DownloadState, TorrentFi
 /// - `poll_completed`: returns tasks not yet completed, marks them done.
 /// - `query_all`: returns all tasks with random progress/states (seeded by infohash).
 pub struct MockDownloader {
-    tasks: Mutex<Vec<MockTask>>,
-    counter: Mutex<u32>,
+    pub(crate) tasks: Mutex<Vec<MockTask>>,
+    pub(crate) counter: Mutex<u32>,
+    /// Whether `move_files` returns `Done` (default: false → `Unsupported`).
+    pub supports_move: bool,
+    /// Whether `rename_file` returns `Done` (default: false → `Unsupported`).
+    pub supports_rename: bool,
 }
 
-struct MockTask {
+pub(crate) struct MockTask {
     infohash: String,
     name: String,
     completed: bool,
@@ -32,6 +36,8 @@ impl MockDownloader {
         Self {
             tasks: Mutex::new(Vec::new()),
             counter: Mutex::new(0),
+            supports_move: false,
+            supports_rename: false,
         }
     }
 }
@@ -79,15 +85,23 @@ impl TorrentDownloader for MockDownloader {
         _old_path: &str,
         _new_name: &str,
     ) -> anyhow::Result<OpResult> {
-        // MockDownloader simulates aria2 behaviour: no downloader rename support.
-        // Caller should fall back to filesystem rename.
-        log::debug!("[mock-dl] rename not supported → using filesystem fallback");
-        Ok(OpResult::Unsupported)
+        if self.supports_rename {
+            log::debug!("[mock-dl] rename → Done");
+            Ok(OpResult::Done)
+        } else {
+            log::debug!("[mock-dl] rename not supported → using filesystem fallback");
+            Ok(OpResult::Unsupported)
+        }
     }
 
     fn move_files(&self, _infohash: &str, _new_location: &str) -> anyhow::Result<OpResult> {
-        log::debug!("[mock-dl] move not supported → using filesystem fallback");
-        Ok(OpResult::Unsupported)
+        if self.supports_move {
+            log::debug!("[mock-dl] move → Done");
+            Ok(OpResult::Done)
+        } else {
+            log::debug!("[mock-dl] move not supported → using filesystem fallback");
+            Ok(OpResult::Unsupported)
+        }
     }
 
     fn pause(&self, infohash: &str) -> anyhow::Result<()> {
@@ -265,6 +279,10 @@ mod mock_fs {
     }
 
     impl FileOps for MockFileSystem {
+        fn exists(&self, path: &Path) -> bool {
+            self.existing.lock().unwrap().contains(path)
+        }
+
         fn ensure_dir(&self, path: &Path) -> anyhow::Result<()> {
             self.dirs.lock().unwrap().insert(path.to_path_buf());
             log::debug!("[mock-fs] ensure_dir: {path:?}");

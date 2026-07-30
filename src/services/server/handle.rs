@@ -12,7 +12,7 @@ use std::time::Duration;
 use crate::core::event::Event;
 use crate::services::server::range::{resolve_range, serve_file_range};
 use crate::services::server::utils::{is_valid_rss_url, json_response};
-use crate::traits::{FileOps, OpResult, TorrentDownloader};
+use crate::traits::{FileOps, TorrentDownloader};
 use crate::types::{ApiResult, BangumiInfo, http_code};
 
 use crate::utils::preview;
@@ -425,37 +425,8 @@ mod tests {
 
     #[test]
     fn handle_health_connected() {
-        struct OkDownloader;
-        impl TorrentDownloader for OkDownloader {
-            fn check_connection(&self) -> anyhow::Result<()> {
-                Ok(())
-            }
-            fn add_uri(&self, _: &str, _: &str) -> anyhow::Result<String> {
-                Ok("mock".into())
-            }
-            fn add_torrent_bytes(&self, _: &[u8], _: &str) -> anyhow::Result<String> {
-                Ok("mock".into())
-            }
-            fn list_files(&self, _: &str) -> anyhow::Result<Vec<crate::types::TorrentFile>> {
-                Ok(vec![])
-            }
-            fn rename_file(&self, _: &str, _: &str, _: &str) -> anyhow::Result<OpResult> {
-                Ok(OpResult::Done)
-            }
-            fn move_files(&self, _: &str, _: &str) -> anyhow::Result<OpResult> {
-                Ok(OpResult::Done)
-            }
-            fn pause(&self, _: &str) -> anyhow::Result<()> {
-                Ok(())
-            }
-            fn remove(&self, _: &str, _: bool) -> anyhow::Result<()> {
-                Ok(())
-            }
-            fn poll_completed(&self) -> anyhow::Result<Vec<crate::types::CompletedDownload>> {
-                Ok(vec![])
-            }
-        }
-        let resp = handle_health(&OkDownloader);
+        use crate::services::downloader::mock::MockDownloader;
+        let resp = handle_health(&MockDownloader::new());
         assert_eq!(resp.status_code, 200);
     }
 
@@ -496,6 +467,9 @@ mod tests {
     fn test_handle_file_stream_unknown_infohash() {
         struct EmptyFs;
         impl FileOps for EmptyFs {
+            fn exists(&self, _: &Path) -> bool {
+                false
+            }
             fn move_file(&self, _: &Path, _: &Path) -> anyhow::Result<()> {
                 Ok(())
             }

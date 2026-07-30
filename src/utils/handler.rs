@@ -23,6 +23,8 @@ pub(crate) struct ResolvedFile {
     pub from: PathBuf,
     /// Absolute destination path (in media library).
     pub to: PathBuf,
+    /// Current actual file path — updated as ops proceed.
+    pub actual: PathBuf,
 }
 
 // ── Toolkit ──
@@ -98,7 +100,7 @@ pub(crate) fn resolve_files(
                 .and_then(|e| e.to_str())
                 .unwrap_or("mkv");
             let target_name = key_to_target_name(&actual_key, ext);
-            let from = PathBuf::from(format!("{}/{}/{}", download_dir, record.feed_id, f.name));
+            let from = PathBuf::from(format!("{}/{}/{}", download_dir, record.feed_id, f.path));
             let to = make_library_path(library_dir, &actual_key, &target_name);
 
             Some(ResolvedFile {
@@ -106,6 +108,7 @@ pub(crate) fn resolve_files(
                 original_name: f.name.clone(),
                 key: actual_key,
                 target_name,
+                actual: from.clone(),
                 from,
                 to,
             })

@@ -236,23 +236,22 @@ impl EffectExecutor {
             status: crate::types::RecordStatus::Downloading,
             library_path: None,
         };
-        let resolved =
+        let mut resolved =
             crate::utils::handler::resolve_files(&files, &record, download_dir, library_dir);
 
         let season_dir = format!("{}/{}/S{:02}", library_dir, anime.name, anime.season);
 
-        // Step 2: Try downloader-mediated pause + rename + move.
+        // Step 2: Try downloader-mediated pause + move + rename.
         // If any step fails, fall back to filesystem operations.
         let succeeded = self
-            .try_downloader_ops(infohash, &resolved, &season_dir)
+            .try_downloader_ops(infohash, &mut resolved, &season_dir)
             .is_ok()
-            || self.try_filesystem_fallback(infohash, &resolved).is_ok();
+            || self
+                .try_filesystem_fallback(infohash, &resolved, &season_dir)
+                .is_ok();
 
         if succeeded {
-            log::info!(
-                "completed: {}",
-                &infohash[..infohash.len().min(16)]
-            );
+            log::info!("completed: {}", &infohash[..infohash.len().min(16)]);
 
             // Step 3: Emit EpisodeMovedToLibrary events.
             for r in &resolved {
@@ -285,14 +284,29 @@ impl EffectExecutor {
     fn try_downloader_ops(
         &self,
         infohash: &str,
-        resolved: &[crate::utils::handler::ResolvedFile],
+        resolved: &mut [crate::utils::handler::ResolvedFile],
         season_dir: &str,
     ) -> anyhow::Result<()> {
         // Step 1: Pause — Transmission/qBittorrent reject rename/move on active torrents.
         self.downloader.pause(infohash)?;
 
-        // Step 2: Rename each file.
-        for r in resolved {
+        // Step 2: Move to library directory.
+        match self.downloader.move_files(infohash, season_dir)? {
+            OpResult::Done => {
+                log::info!("move: → {season_dir}");
+                for r in resolved.iter_mut() {
+                    r.actual =
+                        std::path::PathBuf::from(format!("{}/{}", season_dir, r.original_name));
+                }
+            }
+            OpResult::Unsupported => {
+                log::debug!("move not supported by downloader");
+                anyhow::bail!("downloader does not support move");
+            }
+        }
+
+        // Step 3: Rename each file.
+        for r in resolved.iter_mut() {
             let clean_path = r
                 .original_path
                 .strip_suffix(".part")
@@ -301,7 +315,11 @@ impl EffectExecutor {
                 .downloader
                 .rename_file(infohash, clean_path, &r.target_name)?
             {
-                OpResult::Done => log::info!("rename: {} → {}", r.original_path, r.target_name),
+                OpResult::Done => {
+                    log::info!("rename: {} → {}", r.original_path, r.target_name);
+                    r.actual =
+                        std::path::PathBuf::from(format!("{}/{}", season_dir, r.target_name));
+                }
                 OpResult::Unsupported => {
                     log::debug!("rename not supported by downloader");
                     anyhow::bail!("downloader does not support rename");
@@ -309,24 +327,17 @@ impl EffectExecutor {
             }
         }
 
-        // Step 3: Move to library directory.
-        match self.downloader.move_files(infohash, season_dir)? {
-            OpResult::Done => log::info!("move: → {season_dir}"),
-            OpResult::Unsupported => {
-                log::debug!("move not supported by downloader");
-                anyhow::bail!("downloader does not support move");
-            }
-        }
-
         Ok(())
     }
 
-    /// Fallback: remove torrent from downloader, rename + move via filesystem.
-    /// Returns `Ok(())` if all files were moved successfully.
+    /// Fallback: remove torrent from downloader, probe for files in staging
+    /// and library directories, then move + rename via filesystem.
+    /// Uses multiple probes to recover from crashes at any point during ops.
     fn try_filesystem_fallback(
         &self,
         infohash: &str,
         resolved: &[crate::utils::handler::ResolvedFile],
+        season_dir: &str,
     ) -> anyhow::Result<()> {
         self.downloader.remove(infohash, false)?;
         log::info!(
@@ -334,15 +345,34 @@ impl EffectExecutor {
             &infohash[..infohash.len().min(16)]
         );
         for r in resolved {
-            if r.to.exists() {
+            if self.fs.exists(&r.to) {
                 log::debug!("already in library: {:?}", r.to);
                 continue;
             }
+
+            // Probe for file: crash may have happened at any point.
+            let candidates: [&std::path::Path; 3] = [
+                &r.actual,
+                &std::path::PathBuf::from(format!("{}/{}", season_dir, r.target_name)),
+                &std::path::PathBuf::from(format!("{}/{}", season_dir, r.original_name)),
+            ];
+            let found = candidates.iter().find(|p| self.fs.exists(p));
+
+            let src = match found {
+                Some(p) => {
+                    log::debug!("fallback: found file at {:?}", p);
+                    (*p).to_path_buf()
+                }
+                None => {
+                    anyhow::bail!("fallback: file not found: {}", r.original_name);
+                }
+            };
+
             if let Some(parent) = r.to.parent() {
                 self.fs.ensure_dir(parent)?;
             }
-            self.fs.move_file(&r.from, &r.to)?;
-            log::info!("fs move: {:?} → {:?}", r.from, r.to);
+            self.fs.move_file(&src, &r.to)?;
+            log::info!("fs move: {:?} → {:?}", src, r.to);
         }
         Ok(())
     }
@@ -463,14 +493,20 @@ mod tests {
         // ── setup services ──
         let downloader = Arc::new(MockDownloader::new());
         let fs = Arc::new(MockFileSystem::new());
-        // Register a file that "exists" on disk so move succeeds.
         let infohash = downloader.add_uri("test.torrent", "/dl/test-feed").unwrap();
 
-        // The mock downloader's list_files returns "[MockSubs] test.torrent - 01 [1080p].mkv"
-        // The source path is: /dl/test-feed/[MockSubs] test.torrent - 01 [1080p].mkv
-        let src = std::path::PathBuf::from(
-            "/dl/test-feed/[MockSubs] test.torrent - 01 [1080p].mkv".to_string(),
-        );
+        let feed_id = uuid::Uuid::new_v4();
+        let anime = AnimeIdentity {
+            name: "Test Anime".into(),
+            season: 2,
+        };
+
+        // Register the source file in mock filesystem at the path resolve_files will construct.
+        // resolve_files builds: {download_dir}/{feed_id}/{file.path}
+        let src = std::path::PathBuf::from(format!(
+            "/dl/{}/[MockSubs] test.torrent - 01 [1080p].mp4",
+            feed_id
+        ));
         fs.existing.lock().unwrap().insert(src);
 
         let executor = EffectExecutor {
@@ -483,11 +519,6 @@ mod tests {
         };
 
         // ── populate tracker in AppState ──
-        let feed_id = uuid::Uuid::new_v4();
-        let anime = AnimeIdentity {
-            name: "Test Anime".into(),
-            season: 2,
-        };
         let mut state = AppState {
             download_dir: "/dl".into(),
             library_dir: "/lib".into(),
@@ -567,5 +598,68 @@ mod tests {
         );
         // File moved to library via filesystem rename (breaks seeding).
         assert_eq!(fs.move_count(), 1, "should have called move_file once");
+    }
+
+    /// Verifies that when downloader ops partially succeed (move OK, rename
+    /// fails), `actual` tracks the new location so fallback can continue
+    /// from the breakpoint without needing the original `from` path.
+    #[test]
+    fn fallback_uses_actual_after_partial_ops() {
+        use crate::services::downloader::mock::MockFileSystem;
+        use crate::utils::handler::ResolvedFile;
+
+        // ── Mock downloader: supports move, NOT rename ──
+        let dl = Arc::new(MockDownloader {
+            supports_move: true,
+            supports_rename: false,
+            ..MockDownloader::new()
+        });
+        let fs = Arc::new(MockFileSystem::new());
+
+        // ── Prepare: a file exists at the moved location (season_dir/原名) ──
+        let season_dir = "/lib/Test/S02";
+        let moved_path = std::path::PathBuf::from("/lib/Test/S02/[MockSubs] Test - 01 [1080p].mp4");
+        fs.existing.lock().unwrap().insert(moved_path.clone());
+
+        let mut resolved = vec![ResolvedFile {
+            original_path: "[MockSubs] Test - 01 [1080p].mp4".into(),
+            original_name: "[MockSubs] Test - 01 [1080p].mp4".into(),
+            key: EpisodeKey {
+                anime: AnimeIdentity {
+                    name: "Test".into(),
+                    season: 2,
+                },
+                episode: 1,
+            },
+            target_name: "Test S02E01.mp4".into(),
+            from: "/dl/feed/[MockSubs] Test - 01 [1080p].mp4".into(),
+            to: "/lib/Test/S02/Test S02E01.mp4".into(),
+            actual: "/dl/feed/[MockSubs] Test - 01 [1080p].mp4".into(),
+        }];
+
+        let executor = EffectExecutor {
+            downloader: dl.clone(),
+            fs: fs.clone(),
+            webhook: None,
+            worker_pool: FetchPool::new(4, 512),
+            event_tx: crossbeam_channel::bounded(1).0,
+            effect_tx: crossbeam_channel::bounded(1).0,
+        };
+
+        // Step 1: try_downloader_ops — move succeeds, rename fails.
+        let result = executor.try_downloader_ops("fake", &mut resolved, season_dir);
+        assert!(result.is_err(), "ops should fail at rename");
+        // actual should point to moved-but-not-renamed file.
+        assert_eq!(
+            resolved[0].actual,
+            std::path::PathBuf::from("/lib/Test/S02/[MockSubs] Test - 01 [1080p].mp4"),
+            "actual should track post-move location"
+        );
+
+        // Step 2: fallback — uses actual (season_dir/原名), not from (dl/原名).
+        let result = executor.try_filesystem_fallback("fake", &resolved, season_dir);
+        assert!(result.is_ok(), "fallback should succeed");
+        assert_eq!(fs.move_count(), 1, "should have moved one file");
+        // The file was moved from actual (season_dir/原名) to to.
     }
 }
