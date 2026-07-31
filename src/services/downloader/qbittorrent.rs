@@ -3,138 +3,74 @@
 //! Uses qBittorrent's REST API (v2).  No gid mapping needed — qBittorrent
 //! uses infohash (called "hash") as the primary identifier.
 //!
-//! Auth is session-cookie based; the SID is cached in a `Mutex` and
-//! refreshed on 403 responses.
-
-use std::sync::{Mutex, MutexGuard};
+//! Requires qBittorrent ≥ 5.0 (HTTP Basic Auth).  v4.x cookie-based auth
+//! is not supported.
 
 use crate::traits::{OpResult, TorrentDownloader};
 use crate::types::{CompletedDownload, DownloadSnapshot, DownloadState, TorrentFile};
 
-/// Concrete downloader backed by qBittorrent's Web API.
+use base64::Engine as _;
+
+/// Concrete downloader backed by qBittorrent's Web API (≥ v5.0).
+///
+/// Stateless: every request carries an `Authorization: Basic` header derived
+/// from the configured username and password — no cookie, no session, no Mutex.
 pub struct QbittorrentDownloader {
     api_url: String,
     username: String,
     password: String,
-    /// Cached SID cookie.  Refreshed automatically on 403.
-    sid: Mutex<Option<String>>,
 }
 
 impl QbittorrentDownloader {
     pub fn from_config(url: String, username: String, password: String) -> Self {
         Self {
             api_url: url.trim_end_matches('/').to_string(),
-            sid: Mutex::new(None),
             username,
             password,
         }
     }
 
-    // ── Session management ──
-
-    fn login(&self) -> Option<String> {
-        let body = format!(
-            "username={}&password={}",
-            urlencoding(&self.username),
-            urlencoding(&self.password)
-        );
-
-        let resp = ureq::post(&format!("{}/api/v2/auth/login", self.api_url))
-            .set("Content-Type", "application/x-www-form-urlencoded")
-            .set("Referer", &self.api_url)
-            .timeout(std::time::Duration::from_secs(
-                crate::config::HTTP_TIMEOUT_SECS,
-            ))
-            .send_string(&body)
-            .ok()?;
-
-        // Extract SID from Set-Cookie header
-        let sid = resp
-            .header("set-cookie")
-            .and_then(|h| h.split(';').next())
-            .and_then(|c| c.strip_prefix("SID="))
-            .map(String::from)?;
-
-        *self.sid_guard() = Some(sid.clone());
-        Some(sid)
-    }
-
-    /// Lock the cached SID, recovering from a poisoned mutex (aligned with transmission).
-    fn sid_guard(&self) -> MutexGuard<'_, Option<String>> {
-        self.sid.lock().unwrap_or_else(|poisoned| {
-            log::warn!("[qbittorrent] sid mutex poisoned, recovering");
-            poisoned.into_inner()
-        })
-    }
-
-    fn ensure_sid(&self) -> Option<String> {
-        if let Some(ref sid) = *self.sid_guard() {
-            return Some(sid.clone());
-        }
-        self.login()
+    /// Build the `Authorization: Basic` header value once per request.
+    fn auth_value(&self) -> String {
+        format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD
+                .encode(format!("{}:{}", self.username, self.password))
+        )
     }
 
     // ── HTTP helpers ──
 
+    fn timeout() -> std::time::Duration {
+        std::time::Duration::from_secs(crate::config::HTTP_TIMEOUT_SECS)
+    }
+
     fn get(&self, path: &str) -> Option<serde_json::Value> {
-        let sid = self.ensure_sid()?;
         let url = format!("{}/api/v2/{}", self.api_url, path);
-        let resp = ureq::get(&url)
-            .set("Cookie", &format!("SID={}", sid))
-            .timeout(std::time::Duration::from_secs(
-                crate::config::HTTP_TIMEOUT_SECS,
-            ))
+        ureq::get(&url)
+            .set("Authorization", &self.auth_value())
+            .timeout(Self::timeout())
             .call()
-            .ok()?;
-
-        // If 403, refresh SID and retry once
-        if resp.status() == 403 {
-            let sid = self.login()?;
-            let resp = ureq::get(&url)
-                .set("Cookie", &format!("SID={}", sid))
-                .timeout(std::time::Duration::from_secs(
-                    crate::config::HTTP_TIMEOUT_SECS,
-                ))
-                .call()
-                .ok()?;
-            return resp.into_json().ok();
-        }
-
-        resp.into_json().ok()
+            .ok()?
+            .into_json()
+            .ok()
     }
 
     fn post_form(&self, path: &str, fields: &[(&str, &str)]) -> Option<serde_json::Value> {
-        let sid = self.ensure_sid()?;
         let url = format!("{}/api/v2/{}", self.api_url, path);
         let body: String = fields
             .iter()
             .map(|(k, v)| format!("{}={}", urlencoding(k), urlencoding(v)))
             .collect::<Vec<_>>()
             .join("&");
-
-        let resp = ureq::post(&url)
-            .set("Cookie", &format!("SID={}", sid))
+        ureq::post(&url)
+            .set("Authorization", &self.auth_value())
             .set("Content-Type", "application/x-www-form-urlencoded")
-            .timeout(std::time::Duration::from_secs(
-                crate::config::HTTP_TIMEOUT_SECS,
-            ))
+            .timeout(Self::timeout())
             .send_string(&body)
-            .ok()?;
-
-        if resp.status() == 403 {
-            let sid = self.login()?;
-            let resp = ureq::post(&url)
-                .set("Cookie", &format!("SID={}", sid))
-                .set("Content-Type", "application/x-www-form-urlencoded")
-                .timeout(std::time::Duration::from_secs(
-                    crate::config::HTTP_TIMEOUT_SECS,
-                ))
-                .send_string(&body)
-                .ok()?;
-            return resp.into_json().ok();
-        }
-
-        resp.into_json().ok()
+            .ok()?
+            .into_json()
+            .ok()
     }
 
     fn post_multipart(
@@ -144,10 +80,6 @@ impl QbittorrentDownloader {
         data: &[u8],
         extra: &[(&str, &str)],
     ) -> anyhow::Result<()> {
-        let sid = self
-            .ensure_sid()
-            .ok_or_else(|| anyhow::anyhow!("qbittorrent: not authenticated"))?;
-
         let boundary = format!(
             "----WebKitFormBoundary{:016x}",
             std::time::SystemTime::now()
@@ -182,33 +114,11 @@ impl QbittorrentDownloader {
         let ct = format!("multipart/form-data; boundary={}", boundary);
 
         let resp = ureq::post(&url)
-            .set("Cookie", &format!("SID={}", sid))
+            .set("Authorization", &self.auth_value())
             .set("Content-Type", &ct)
-            .timeout(std::time::Duration::from_secs(
-                crate::config::HTTP_TIMEOUT_SECS,
-            ))
+            .timeout(Self::timeout())
             .send_bytes(&body)?;
-
-        if resp.status() == 403 {
-            // Refresh SID and retry once
-            let sid = self
-                .login()
-                .ok_or_else(|| anyhow::anyhow!("qbittorrent: re-login failed"))?;
-            let resp = ureq::post(&url)
-                .set("Cookie", &format!("SID={}", sid))
-                .set("Content-Type", &ct)
-                .timeout(std::time::Duration::from_secs(
-                    crate::config::HTTP_TIMEOUT_SECS,
-                ))
-                .send_bytes(&body)?;
-            if resp.status() != 200 {
-                anyhow::bail!(
-                    "qbittorrent: multipart POST {} returned {}",
-                    path,
-                    resp.status()
-                );
-            }
-        } else if resp.status() != 200 {
+        if resp.status() != 200 {
             anyhow::bail!(
                 "qbittorrent: multipart POST {} returned {}",
                 path,
@@ -407,8 +317,15 @@ impl TorrentDownloader for QbittorrentDownloader {
     }
 
     fn check_connection(&self) -> anyhow::Result<()> {
-        self.login()
-            .ok_or_else(|| anyhow::anyhow!("qbittorrent not reachable or login failed"))?;
-        Ok(())
+        let url = format!("{}/api/v2/app/version", self.api_url);
+        match ureq::get(&url)
+            .set("Authorization", &self.auth_value())
+            .timeout(Self::timeout())
+            .call()
+        {
+            Ok(resp) if resp.status() == 200 => Ok(()),
+            Ok(resp) => anyhow::bail!("qbittorrent returned HTTP {}", resp.status()),
+            Err(e) => anyhow::bail!("qbittorrent not reachable: {e}"),
+        }
     }
 }
