@@ -70,7 +70,7 @@ pub struct Config {
     pub auth_password: String,
     #[envconfig(from = "BIND_ADDR", default = "127.0.0.1")]
     pub bind_addr: String,
-    #[envconfig(from = "MAX_CONNECTIONS", default = "128")]
+    #[envconfig(from = "MAX_CONNECTIONS", default = "16")]
     pub max_connections: u32,
     #[envconfig(from = "MAX_QUEUE", default = "0")]
     pub max_queue: u32,

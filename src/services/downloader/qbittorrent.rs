@@ -56,21 +56,31 @@ impl QbittorrentDownloader {
             .ok()
     }
 
-    fn post_form(&self, path: &str, fields: &[(&str, &str)]) -> Option<serde_json::Value> {
+    fn post_form(&self, path: &str, fields: &[(&str, &str)]) -> anyhow::Result<serde_json::Value> {
         let url = format!("{}/api/v2/{}", self.api_url, path);
         let body: String = fields
             .iter()
             .map(|(k, v)| format!("{}={}", urlencoding(k), urlencoding(v)))
             .collect::<Vec<_>>()
             .join("&");
-        ureq::post(&url)
+        let resp = ureq::post(&url)
             .set("Authorization", &self.auth_value())
             .set("Content-Type", "application/x-www-form-urlencoded")
             .timeout(Self::timeout())
             .send_string(&body)
-            .ok()?
-            .into_json()
-            .ok()
+            .map_err(|e| anyhow::anyhow!("qbittorrent: POST {path} failed: {e}"))?;
+        let status = resp.status();
+        let text = resp.into_string().unwrap_or_default();
+        if !(200..300).contains(&status) {
+            anyhow::bail!("qbittorrent: POST {path} returned {status}: {text}");
+        }
+        // 写端点返回空 body / "Ok.";只有 add 返回 JSON → 空则视为 Null
+        if text.trim().is_empty() || text.trim() == "Ok." {
+            Ok(serde_json::Value::Null)
+        } else {
+            serde_json::from_str(&text)
+                .map_err(|e| anyhow::anyhow!("qbittorrent: POST {path} returned non-JSON: {e}"))
+        }
     }
 
     fn post_multipart(
@@ -79,7 +89,7 @@ impl QbittorrentDownloader {
         file_name: &str,
         data: &[u8],
         extra: &[(&str, &str)],
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<serde_json::Value> {
         let boundary = format!(
             "----WebKitFormBoundary{:016x}",
             std::time::SystemTime::now()
@@ -118,26 +128,45 @@ impl QbittorrentDownloader {
             .set("Content-Type", &ct)
             .timeout(Self::timeout())
             .send_bytes(&body)?;
-        if resp.status() != 200 {
-            anyhow::bail!(
-                "qbittorrent: multipart POST {} returned {}",
-                path,
-                resp.status()
-            );
+        let status = resp.status();
+        let text = resp.into_string().unwrap_or_default();
+        if !(200..300).contains(&status) {
+            anyhow::bail!("qbittorrent: multipart POST {path} returned {status}: {text}");
         }
-
-        Ok(())
+        if text.trim().is_empty() || text.trim() == "Ok." {
+            Ok(serde_json::Value::Null)
+        } else {
+            serde_json::from_str(&text).map_err(|e| {
+                anyhow::anyhow!("qbittorrent: multipart POST {path} returned non-JSON: {e}")
+            })
+        }
     }
 
-    /// After adding a torrent, find its infohash by querying the most recent one.
-    fn most_recent_hash(&self) -> anyhow::Result<String> {
-        let arr = self
-            .get("torrents/info?sort=added_on&reverse=true&limit=1")
+    /// Snapshot of all known torrent hashes (used to detect a newly added one).
+    fn all_hashes(&self) -> std::collections::HashSet<String> {
+        self.get("torrents/info?filter=all")
             .and_then(|r| r.as_array().cloned())
-            .unwrap_or_default();
-        arr.first()
-            .and_then(|t| t["hash"].as_str().map(String::from))
-            .ok_or_else(|| anyhow::anyhow!("qbittorrent: could not find added torrent"))
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|t| t["hash"].as_str().map(String::from))
+            .collect()
+    }
+
+    /// URL 方式添加 .torrent 是异步的:`torrents/add` 返回 pending。
+    /// 记录添加前的 hash 集合,轮询直到出现新增 torrent(带超时兜底)。
+    fn wait_for_added(&self, dir: &str) -> anyhow::Result<String> {
+        let before = self.all_hashes();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            if std::time::Instant::now() > deadline {
+                anyhow::bail!("qbittorrent: timed out waiting for torrent to appear in {dir}");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let now = self.all_hashes();
+            if let Some(h) = now.difference(&before).next() {
+                return Ok(h.clone());
+            }
+        }
     }
 }
 
@@ -158,22 +187,45 @@ fn urlencoding(s: &str) -> String {
 
 impl TorrentDownloader for QbittorrentDownloader {
     fn add_uri(&self, uri: &str, dir: &str) -> anyhow::Result<String> {
-        self.post_form(
+        let json = self.post_form(
             "torrents/add",
             &[("urls", uri), ("savepath", dir), ("autoTMM", "false")],
-        );
-        // qBittorrent returns "Ok." on success — we need to find the hash.
-        self.most_recent_hash()
+        )?;
+
+        // 同步添加(magnet / 直链)→ 响应直接给 hash
+        if let Some(h) = json["added_torrent_ids"]
+            .as_array()
+            .and_then(|a| a.first())
+            .and_then(|h| h.as_str())
+        {
+            log::info!("[qbittorrent] add_uri: infohash={h}");
+            return Ok(h.to_string());
+        }
+
+        // URL 异步添加 → 简单轮询等待
+        log::debug!("[qbittorrent] add_uri: pending, polling for torrent in {dir}");
+        self.wait_for_added(dir)
     }
 
     fn add_torrent_bytes(&self, data: &[u8], dir: &str) -> anyhow::Result<String> {
-        self.post_multipart(
+        let json = self.post_multipart(
             "torrents/add",
             "download.torrent",
             data,
             &[("savepath", dir), ("autoTMM", "false")],
         )?;
-        self.most_recent_hash()
+
+        if let Some(h) = json["added_torrent_ids"]
+            .as_array()
+            .and_then(|a| a.first())
+            .and_then(|h| h.as_str())
+        {
+            log::info!("[qbittorrent] add_torrent_bytes: infohash={h}");
+            return Ok(h.to_string());
+        }
+
+        log::debug!("[qbittorrent] add_torrent_bytes: pending, polling for torrent in {dir}");
+        self.wait_for_added(dir)
     }
 
     fn list_files(&self, infohash: &str) -> anyhow::Result<Vec<TorrentFile>> {
@@ -208,7 +260,7 @@ impl TorrentDownloader for QbittorrentDownloader {
                 ("newPath", new_name),
             ],
         )
-        .ok_or_else(|| anyhow::anyhow!("qbittorrent: rename failed for {infohash}"))?;
+        .map_err(|e| anyhow::anyhow!("qbittorrent: rename failed for {infohash}: {e}"))?;
         Ok(OpResult::Done)
     }
 
@@ -217,19 +269,19 @@ impl TorrentDownloader for QbittorrentDownloader {
             "torrents/setLocation",
             &[("hashes", infohash), ("location", new_location)],
         )
-        .ok_or_else(|| anyhow::anyhow!("qbittorrent: move failed for {infohash}"))?;
+        .map_err(|e| anyhow::anyhow!("qbittorrent: move failed for {infohash}: {e}"))?;
         Ok(OpResult::Done)
     }
 
     fn pause(&self, infohash: &str) -> anyhow::Result<()> {
         self.post_form("torrents/stop", &[("hashes", infohash)])
-            .ok_or_else(|| anyhow::anyhow!("qbittorrent: pause failed for {infohash}"))?;
+            .map_err(|e| anyhow::anyhow!("qbittorrent: pause failed for {infohash}: {e}"))?;
         Ok(())
     }
 
     fn resume(&self, infohash: &str) -> anyhow::Result<()> {
         self.post_form("torrents/start", &[("hashes", infohash)])
-            .ok_or_else(|| anyhow::anyhow!("qbittorrent: resume failed for {infohash}"))?;
+            .map_err(|e| anyhow::anyhow!("qbittorrent: resume failed for {infohash}: {e}"))?;
         Ok(())
     }
 
@@ -239,7 +291,7 @@ impl TorrentDownloader for QbittorrentDownloader {
             "torrents/delete",
             &[("hashes", infohash), ("deleteFiles", df)],
         )
-        .ok_or_else(|| anyhow::anyhow!("qbittorrent: remove failed for {infohash}"))?;
+        .map_err(|e| anyhow::anyhow!("qbittorrent: remove failed for {infohash}: {e}"))?;
         Ok(())
     }
 

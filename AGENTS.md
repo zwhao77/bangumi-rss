@@ -1,13 +1,13 @@
 # AGENTS.md — bangumi-rss
 
-> Anime RSS auto-downloader. Single Rust binary, ~5 MB memory, 34 tests (logic 11, handler 9, tokenizer 8, bangumi 5, timer 1, rss 1, downloader 1, executor 1).
+> Anime RSS auto-downloader. Single Rust binary, ~5 MB memory, 94 tests (server 25, notify 14, logic 11, tokenizer 8, handler 8, rss 6, config 6, bangumi 5, dl_command 4, executor 3, fetch_pool 2, timer 1, aria2 1).
 
 ## Build & Run
 
 ```bash
 cargo build                  # debug build
 cargo build --release        # release build
-cargo test                   # run all tests (28)
+cargo test                   # run all tests (94)
 cargo run                    # run directly (env vars below)
 ```
 
@@ -58,36 +58,42 @@ Event Sources (timers, server)
 - **`logic::reduce` is pure** — no I/O, no side effects. Testable.
 - State uses **copy-on-write** builder pattern: `state.with_*()`, etc.
 - State persists to `{DATA_DIR}/state.json` only when changed.
-- 4 threads: timers (combined), HTTP server, executor, logic.
+- 5 threads: timers (combined), HTTP server, executor, logic, downloader (DlThread).
 
 ## Key Modules
 
 | File | Purpose |
 |---|---|
-| `main.rs` | Bootstrap: channels, services, 4 threads, logic loop |
-| `timer.rs` | Zero‑dependency periodic timer manager with graceful shutdown |
-| `event.rs` | `Event` enum (15 variants) + `run_logic()` loop |
-| `effect.rs` | `Effect` enum (9 variants) — pure data |
-| `logic.rs` | `reduce()` — pure reducer, one handler per event (11 tests) |
-| `state.rs` | `AppState` + `Feed` — pure data, CoW builders, serde only |
-| `persistence.rs` | `load_state()` / `save_state()` — disk I/O via `FileOps` trait |
-| `server.rs` | `tiny_http` API + two-step feed confirmation page at `/` |
-| `feed.rs` | RSS-related utilities (placeholder) |
-| `handler.rs` | Pure post‑download logic: `resolve_files`, toolkit functions (9 tests) |
-| `tokenizer.rs` | Regex-based torrent title parser + batch detection (2 tests) |
-| `utils/rss.rs` | Pure RSS XML parsing: `parse_rss()`, `parse_preview()` (6 tests) |
-| `types.rs` | Core types: `EpisodeRecord`, `EpisodeKey`, `AnimeIdentity`, `ResolvedEpisode`, `DownloadSnapshot`, `DownloadInfo` |
-| `traits.rs` | Service abstractions: `TorrentDownloader`, `FileOps`, `Notifier`, `BangumiSearcher` |
-| `services/mod.rs` | `EffectExecutor<R,D,F,N,B>` — generic effect runner |
-| `services/downloader.rs` | `Aria2Downloader` — stateless JSON-RPC client, paginated gid lookup (1 test) |
-| `services/qbittorrent.rs` | `QbittorrentDownloader` — Web API client with SID cookie auth |
-| `services/transmission.rs` | `TransmissionDownloader` — JSON-RPC 2.0 client with CSRF session handling |
-| `services/mock.rs` | `MockDownloader`, `MockFileSystem` (all use `Mutex` for thread safety) |
+| `main.rs` | Thin entry: env logger + `Config::init_from_env()` → `app::run()` |
+| `app.rs` | Bootstrap: DI wiring (mock vs real), 5 threads startup, timer registration |
+| `config.rs` | Env config via `envconfig` (6 tests) |
+| `lib.rs` | Library crate root — single module declaration for all binaries |
+| `core/event.rs` | `Event` enum (15 variants) + `run_logic()` loop |
+| `core/effect.rs` | `Effect` enum (9 variants) — pure data |
+| `core/logic.rs` | `reduce()` — pure reducer, one handler per event (11 tests) |
+| `core/state.rs` | `AppState` + `Feed` — pure data, CoW builders, serde only |
+| `services/timer.rs` | Zero‑dependency periodic timer manager with graceful shutdown (1 test) |
+| `services/executor.rs` | `EffectExecutor` — I/O boundary, delegates effects to services (3 tests) |
+| `services/dl_command.rs` | `DlThread` — dedicated single-threaded downloader scheduler (4 tests) |
+| `services/server/` | rouille HTTP API: `core.rs` (entry), `handle.rs` (routes), `range.rs` (Range support), `utils.rs` (25 tests) |
+| `services/fetch.rs` | RSS fetch + `.torrent` download (worker jobs) |
+| `services/fetch_pool.rs` | Bounded worker pool (2 tests) |
 | `services/fs.rs` | `RealFileSystem` — thin `std::fs` wrapper |
-| `services/notify.rs` | `NoopNotifier` (Server酱 TODO) |
+| `services/persistence.rs` | `load_state()` / `save_state()` — disk I/O via `FileOps` trait |
+| `services/notify.rs` | `NoopNotifier` (legacy; real webhook renderer in `utils/notify.rs`) |
 | `services/bangumi.rs` | `bangumi::search()`, `bangumi::detail()` — old API (no-auth), serde-deserialized (5 tests) |
-| `util.rs` | Pure helpers for server: `fetch_feed_preview()` (RSS + tokenizer + Bangumi) |
-| `confirm.html` | Web UI template — loaded via `include_str!` |
+| `services/downloader/aria2.rs` | `Aria2Downloader` — stateless JSON-RPC client, paginated gid lookup (1 test) |
+| `services/downloader/qbittorrent.rs` | `QbittorrentDownloader` — Web API client, HTTP Basic Auth (v5.0+) |
+| `services/downloader/transmission.rs` | `TransmissionDownloader` — JSON-RPC 2.0 client with CSRF session handling |
+| `services/downloader/mock.rs` | `MockDownloader`, `MockFileSystem` (all use `Mutex` for thread safety) |
+| `utils/handler.rs` | Pure post‑download logic: `resolve_files`, toolkit functions (8 tests) |
+| `utils/tokenizer.rs` | Regex-based torrent title parser + batch detection (8 tests) |
+| `utils/rss.rs` | Pure RSS XML parsing: `parse_rss()`, `parse_preview()` (6 tests) |
+| `utils/notify.rs` | Webhook renderer: bark/gotify/serverchan templates (14 tests) |
+| `utils/preview.rs` | `fetch_feed_preview()` — RSS + tokenizer + Bangumi, used by server directly |
+| `types.rs` | Core types: `EpisodeRecord`, `EpisodeKey`, `AnimeIdentity`, `ResolvedEpisode`, `DownloadSnapshot`, `DownloadInfo` |
+| `traits.rs` | Service abstractions: `TorrentDownloader` (+ `OpResult`), `FileOps` |
+| `res/index.html` + `res/style.css` | Web UI — loaded via `include_str!` |
 
 ## Data Model
 
@@ -145,13 +151,21 @@ PollDownloader (every 30s) → Effect::PollCompleted
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/` | Two-step feed confirmation UI |
+| `GET` | `/style.css` | Stylesheet |
+| `POST` | `/api/feeds` | Create feed (`{ url, name, season, bangumi_info? }`) |
 | `POST` | `/api/feeds/preview` | Submit RSS URL → get structured preview |
-| `POST` | `/api/feeds/confirm` | Confirm anime name + season → create Feed |
-| `POST` | `/api/feeds/update` | Trigger immediate RSS refresh |
+| `POST` | `/api/feeds/refresh` | Trigger immediate RSS refresh |
 | `GET` | `/api/feeds` | List all feeds |
-| `DELETE` | `/api/feeds?id=<uuid>` | Remove feed |
-| `GET` | `/api/downloads` | List cached downloads (seeding state supported) |
+| `PUT` | `/api/feeds/{id}` | Update feed (name/season/bangumi_info) |
+| `DELETE` | `/api/feeds/{id}` | Remove feed |
+| `GET` | `/api/files/{infohash}` | Stream episode file (Range support) |
+| `GET` | `/api/downloads` | List cached downloads |
 | `POST` | `/api/downloads/refresh` | Trigger download list refresh |
+| `POST` | `/api/downloads/poll` | Trigger immediate downloader poll |
+| `GET` | `/api/bangumi/subjects/{id}` | Bangumi subject detail |
+| `GET` | `/api/bangumi/search?name=` | Bangumi search + detail |
+| `GET` | `/api/health` | Health check (probes downloader) |
+| `POST` | `/api/notify/test` | Send test notifications |
 
 ## Download States
 
@@ -186,7 +200,7 @@ Uses the **legacy (no-auth) API** via `services/bangumi.rs`:
 - **Error handling**: `anyhow::Result` throughout, `?` operator
 - **Channels**: `crossbeam_channel::bounded(256)` for all thread communication
 - **Services behind traits**: All I/O is behind `Arc<dyn Trait>` for testability
-- **Testing**: 38 tests total — logic (11), handler (9), tokenizer (8), bangumi (5), downloader (3), timer (1), rss (1), executor integration (1)
+- **Testing**: 94 tests total — server (25), notify (14), logic (11), tokenizer (8), handler (8), rss (6), config (6), bangumi (5), dl_command (4), executor (3), fetch_pool (2), timer (1), aria2 (1)
 - **No async runtime** — everything is sync with OS threads and channels
 - **Single‑threaded services**: `Aria2Downloader` is only accessed from executor thread
 - **Timer**: `TimerManager` — `add(interval, callback → bool)`, returns `false` to self‑remove, graceful shutdown via `AtomicBool`
