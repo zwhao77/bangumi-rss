@@ -102,6 +102,11 @@ pub enum Event {
         infohash: String,
         reply_tx: crossbeam_channel::Sender<ApiResult<crate::types::EpisodeRecord>>,
     },
+
+    /// API: health check — executor probes the downloader (sync reply).
+    CheckDownloader {
+        reply_tx: crossbeam_channel::Sender<ApiResult<()>>,
+    },
 }
 
 #[derive(Debug)]

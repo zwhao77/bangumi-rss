@@ -8,11 +8,10 @@ use crate::core::event::Event;
 use crate::services::server::ServerConfig;
 use crate::services::server::handle::*;
 use crate::services::server::utils::check_auth;
-use crate::traits::{FileOps, TorrentDownloader};
+use crate::traits::FileOps;
 
 pub fn start_server(
     event_tx: Sender<Event>,
-    downloader: Arc<dyn TorrentDownloader>,
     fs: Arc<dyn FileOps>,
     cfg: ServerConfig,
 ) {
@@ -44,7 +43,7 @@ pub fn start_server(
         let url = request.url().to_string();
         let start_time = std::time::Instant::now();
 
-        let response = handle_request(request, &event_tx, &*downloader, &*fs);
+        let response = handle_request(request, &event_tx, &*fs);
 
         let elapsed = start_time.elapsed();
         let content_type = response
@@ -83,7 +82,6 @@ pub fn start_server(
 fn handle_request(
     request: &Request,
     tx: &Sender<Event>,
-    dl: &dyn TorrentDownloader,
     fs: &dyn FileOps,
 ) -> Response {
     let method = request.method().to_uppercase();
@@ -119,7 +117,7 @@ fn handle_request(
         (GET) (/api/bangumi/search) => { handle_bangumi_search(request) },
 
         // ═══ /api/health ═══
-        (GET) (/api/health) => { handle_health(dl) },
+        (GET) (/api/health) => { handle_health(tx) },
 
         // ═══ /api/notify/test ═══
         (POST) (/api/notify/test) => { handle_notify_test(tx) },

@@ -12,7 +12,7 @@ use crate::core::effect::Effect;
 use crate::core::event::Event;
 use crate::services::fetch_pool::{FetchJob, FetchPool};
 use crate::traits::{FileOps, OpResult, TorrentDownloader};
-use crate::types::AnimeIdentity;
+use crate::types::{AnimeIdentity, ApiResult, http_code};
 use crate::utils::notify::{WebhookConfig, render, render_failed};
 
 /// Executes effects by delegating to service trait objects.
@@ -77,6 +77,7 @@ impl EffectExecutor {
             } => self.do_add_torrent_bytes(&data, &save_path, feed_id, &torrent_url),
             Effect::Notify(notification) => self.do_notify(&notification),
             Effect::QueryAllDownloads => self.do_query_all(),
+            Effect::CheckDownloader { reply_tx } => self.do_check_connection(reply_tx),
             Effect::RssFetchComplete {
                 feed_id,
                 items,
@@ -454,6 +455,26 @@ impl EffectExecutor {
             }
             Err(e) => {
                 log::warn!("query_all failed: {e}");
+            }
+        }
+        vec![]
+    }
+
+    fn do_check_connection(
+        &self,
+        reply_tx: crossbeam_channel::Sender<ApiResult<()>>,
+    ) -> Vec<Effect> {
+        match self.downloader.check_connection() {
+            Ok(()) => {
+                log::info!("downloader connection OK");
+                let _ = reply_tx.send(ApiResult::OK { value: () });
+            }
+            Err(e) => {
+                log::warn!("downloader check failed: {e}");
+                let _ = reply_tx.send(ApiResult::Err {
+                    code: http_code::SERVICE_UNAVAILABLE,
+                    message: "downloader unavailable".into(),
+                });
             }
         }
         vec![]

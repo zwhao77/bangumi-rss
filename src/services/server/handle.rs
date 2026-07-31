@@ -12,7 +12,7 @@ use std::time::Duration;
 use crate::core::event::Event;
 use crate::services::server::range::{resolve_range, serve_file_range};
 use crate::services::server::utils::{is_valid_rss_url, json_response};
-use crate::traits::{FileOps, TorrentDownloader};
+use crate::traits::FileOps;
 use crate::types::{ApiResult, BangumiInfo, http_code};
 
 use crate::utils::preview;
@@ -310,18 +310,8 @@ pub fn handle_bangumi_search(request: &Request) -> Response {
     result.into()
 }
 
-pub fn handle_health(dl: &dyn TorrentDownloader) -> Response {
-    match dl.check_connection() {
-        Ok(()) => ApiResult::OK { value: () }.into(),
-        Err(e) => {
-            log::error!("health check failed: {e}");
-            ApiResult::<()>::Err {
-                code: http_code::SERVICE_UNAVAILABLE,
-                message: "downloader unavailable".into(),
-            }
-            .into()
-        }
-    }
+pub fn handle_health(tx: &Sender<Event>) -> Response {
+    query_api_result(tx, |reply_tx| Event::CheckDownloader { reply_tx })
 }
 
 pub fn handle_notify_test(tx: &Sender<Event>) -> Response {
@@ -424,10 +414,11 @@ mod tests {
     }
 
     #[test]
-    fn handle_health_connected() {
-        use crate::services::downloader::mock::MockDownloader;
-        let resp = handle_health(&MockDownloader::new());
-        assert_eq!(resp.status_code, 200);
+    fn handle_health_closed_channel() {
+        let (tx, rx) = crossbeam_channel::bounded::<Event>(1);
+        drop(rx);
+        let resp = handle_health(&tx);
+        assert_eq!(resp.status_code, 503);
     }
 
     #[test]

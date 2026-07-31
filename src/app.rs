@@ -75,11 +75,9 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     if !config.no_server {
         let tx = event_tx.clone();
         let fs = Arc::clone(&fs_ops);
-        let dl = downloader.clone();
         thread::spawn(move || {
             start_server(
                 tx,
-                dl,
                 fs,
                 services::ServerConfig {
                     bind_addr: config.bind_addr,

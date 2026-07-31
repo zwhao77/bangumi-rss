@@ -6,7 +6,7 @@
 use std::fmt;
 use uuid::Uuid;
 
-use crate::types::{AnimeIdentity, Notification, RssItem};
+use crate::types::{AnimeIdentity, ApiResult, Notification, RssItem};
 
 /// An effect to be executed by the service layer.
 pub enum Effect {
@@ -54,6 +54,11 @@ pub enum Effect {
 
     /// Poll the downloader for recently failed tasks.
     PollFailed,
+
+    /// Health check — probe the downloader and reply via channel.
+    CheckDownloader {
+        reply_tx: crossbeam_channel::Sender<ApiResult<()>>,
+    },
 
     /// Worker pool fetched and parsed RSS items.
     RssFetchComplete {
@@ -127,6 +132,7 @@ impl fmt::Debug for Effect {
             Self::QueryAllDownloads => f.debug_struct("QueryAllDownloads").finish(),
             Self::PollCompleted => f.debug_struct("PollCompleted").finish(),
             Self::PollFailed => f.debug_struct("PollFailed").finish(),
+            Self::CheckDownloader { reply_tx: _ } => f.debug_struct("CheckDownloader").finish(),
             Self::RssFetchComplete {
                 feed_id,
                 items,

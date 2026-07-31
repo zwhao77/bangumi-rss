@@ -66,6 +66,7 @@ pub fn reduce(state: &AppState, event: Event) -> (AppState, Vec<Effect>) {
         Event::ApiGetEpisode { infohash, reply_tx } => {
             reduce_api_get_episode(state, infohash, reply_tx)
         }
+        Event::CheckDownloader { reply_tx } => reduce_check_downloader(state, reply_tx),
     }
 }
 
@@ -433,6 +434,14 @@ fn reduce_api_list_downloads(
 /// Trigger a downloader refresh.
 fn reduce_refresh_downloads(state: &AppState) -> (AppState, Vec<Effect>) {
     (state.clone(), vec![Effect::QueryAllDownloads])
+}
+
+/// Health check — forward to the executor, which probes the downloader.
+fn reduce_check_downloader(
+    state: &AppState,
+    reply_tx: crossbeam_channel::Sender<ApiResult<()>>,
+) -> (AppState, Vec<Effect>) {
+    (state.clone(), vec![Effect::CheckDownloader { reply_tx }])
 }
 
 /// RSS fetch/parse failed — log and notify.
