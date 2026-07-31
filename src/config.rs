@@ -122,6 +122,9 @@ impl Config {
 /// Default HTTP timeout for all outbound requests (RSS, torrent, Aria2 RPC, etc.).
 pub const HTTP_TIMEOUT_SECS: u64 = 10;
 
+/// Capacity for cross-thread bounded channels (event, effect, downloader command).
+pub const CHANNEL_CAPACITY: usize = 256;
+
 #[cfg(test)]
 mod tests {
     use super::*;

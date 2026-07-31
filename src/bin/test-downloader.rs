@@ -23,6 +23,7 @@
 //! ```
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use envconfig::Envconfig;
 
@@ -41,6 +42,19 @@ fn main() {
         .iter()
         .position(|a| a == "--torrent-uri")
         .and_then(|i| args.get(i + 1).cloned());
+    // Concurrent stress mode: N threads hammer the shared downloader.
+    let threads = args
+        .iter()
+        .position(|a| a == "--threads")
+        .and_then(|i| args.get(i + 1).cloned())
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(1);
+    let iterations = args
+        .iter()
+        .position(|a| a == "--iterations")
+        .and_then(|i| args.get(i + 1).cloned())
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(10);
     // Only test add/remove when a torrent URI is explicitly provided.
     let skip_add = custom_uri.is_none();
     let download_dir = args
@@ -92,6 +106,12 @@ fn main() {
             }
         }
     };
+
+    // ── concurrent stress mode (skips the serial suite) ──
+    if threads > 1 {
+        run_concurrent(&dl, threads, iterations);
+        return;
+    }
 
     let mut passed = 0u32;
     let mut failed = 0u32;
@@ -183,6 +203,55 @@ fn main() {
     }
 
     report(passed, failed);
+}
+
+/// Concurrent stress mode — `threads` threads each run `iterations` ops,
+/// rotating through check_connection / query_all / poll_completed to exercise
+/// the shared `Arc<dyn TorrentDownloader>` under real parallelism.
+fn run_concurrent(dl: &Arc<dyn TorrentDownloader>, threads: usize, iterations: usize) {
+    println!("─── concurrent stress: {threads} threads × {iterations} iterations ───");
+    let start = Instant::now();
+    let mut handles = Vec::new();
+    for t in 0..threads {
+        let dl = Arc::clone(dl);
+        handles.push(std::thread::spawn(move || {
+            let (mut ok, mut fail) = (0u32, 0u32);
+            for i in 0..iterations {
+                let op = (t + i) % 3;
+                let r: Result<String, anyhow::Error> = match op {
+                    0 => dl
+                        .check_connection()
+                        .map(|()| "connected".to_string()),
+                    1 => dl
+                        .query_all()
+                        .map(|v: Vec<DownloadSnapshot>| format!("{} items", v.len())),
+                    _ => dl
+                        .poll_completed()
+                        .map(|v: Vec<CompletedDownload>| format!("{} completed", v.len())),
+                };
+                match r {
+                    Ok(_) => ok += 1,
+                    Err(e) => {
+                        fail += 1;
+                        log::warn!("[thread {t}] iter {i} op {op} failed: {e}");
+                    }
+                }
+            }
+            (ok, fail)
+        }));
+    }
+    let (mut total_ok, mut total_fail) = (0u32, 0u32);
+    for h in handles {
+        let (ok, fail) = h.join().unwrap();
+        total_ok += ok;
+        total_fail += fail;
+    }
+    let elapsed = start.elapsed();
+    let total = total_ok + total_fail;
+    println!("────── concurrent: {total_ok}/{total} ok, {total_fail} fail, elapsed {elapsed:?} ──────");
+    if total_fail > 0 {
+        std::process::exit(1);
+    }
 }
 
 fn report(passed: u32, failed: u32) {

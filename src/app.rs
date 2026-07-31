@@ -20,17 +20,16 @@ use anyhow::Context;
 
 use crossbeam_channel::{Sender, bounded};
 
-use crate::config::{Config, Downloader};
+use crate::config::{CHANNEL_CAPACITY, Config, Downloader};
 use crate::core::effect::Effect;
 use crate::core::event::{Event, run_logic};
 use crate::core::state::AppState;
 use crate::services;
+use crate::services::dl_command::DlThread;
 use crate::services::fetch_pool::FetchPool;
 use crate::services::persistence::load_state;
 use crate::services::{EffectExecutor, TimerManager, start_server};
 use crate::traits::{FileOps, TorrentDownloader};
-
-const CHANNEL_CAPACITY: usize = 256;
 
 /// Bootstrap the full application from a resolved `Config`.
 ///
@@ -95,7 +94,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
 
     // ── effect executor (consumes effects, may publish DownloadStarted events) ──
     let executor = EffectExecutor {
-        downloader,
+        dl_thread: DlThread::spawn(downloader.clone(), event_tx.clone(), effect_tx.clone()),
         fs: fs_ops_for_executor,
         webhook,
         worker_pool: FetchPool::new(config.torrent_concurrency, config.queue_capacity),

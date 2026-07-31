@@ -1,6 +1,7 @@
 //! Service layer — concrete implementations behind `traits::*` interfaces.
 
 pub mod bangumi;
+pub mod dl_command;
 pub mod downloader;
 pub mod executor;
 pub mod fetch;

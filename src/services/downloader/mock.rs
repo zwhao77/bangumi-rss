@@ -23,6 +23,11 @@ pub struct MockDownloader {
     pub supports_move: bool,
     /// Whether `rename_file` returns `Done` (default: false → `Unsupported`).
     pub supports_rename: bool,
+    /// Artificial delay in `poll_completed` (ms) — simulates a slow/hung
+    /// downloader for stress-testing the scheduling-thread isolation.
+    pub poll_delay_ms: u64,
+    /// Number of times `poll_completed` was invoked (for drop-count checks).
+    pub poll_count: std::sync::atomic::AtomicU64,
 }
 
 pub(crate) struct MockTask {
@@ -38,6 +43,8 @@ impl MockDownloader {
             counter: Mutex::new(0),
             supports_move: false,
             supports_rename: false,
+            poll_delay_ms: 0,
+            poll_count: std::sync::atomic::AtomicU64::new(0),
         }
     }
 }
@@ -120,6 +127,12 @@ impl TorrentDownloader for MockDownloader {
     }
 
     fn poll_completed(&self) -> anyhow::Result<Vec<CompletedDownload>> {
+        self.poll_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // Simulate a slow downloader (e.g. hung RPC) when configured.
+        if self.poll_delay_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(self.poll_delay_ms));
+        }
         let mut tasks = self.tasks.lock().unwrap();
         let fresh: Vec<CompletedDownload> = tasks
             .iter_mut()

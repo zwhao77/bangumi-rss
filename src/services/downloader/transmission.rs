@@ -334,7 +334,7 @@ impl TorrentDownloader for TransmissionDownloader {
 
     fn resume(&self, infohash: &str) -> anyhow::Result<()> {
         let result = self.rpc(
-            "torrent-start-now",
+            "torrent_start",
             &serde_json::json!({
                 "ids": [infohash],
             }),
