@@ -1,11 +1,15 @@
-//! Library crate — exposes public types for binaries (main, test-downloader).
+//! Library crate — single module declaration point for all binaries.
 //!
-//! Internal modules (`core`, `utils`) are kept crate-private; only the
-//! public API surface is exported.
+//! `core` is public because `main.rs` (the binary) consumes it directly;
+//! `utils` stays crate-private; `tokenizer` is re-exported for dev tools.
 
+pub mod app;
 pub mod config;
-mod core;
+pub mod core;
 pub mod services;
 pub mod traits;
 pub mod types;
 mod utils;
+
+pub use app::run;
+pub use utils::tokenizer;

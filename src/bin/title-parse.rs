@@ -1,5 +1,4 @@
-#[path = "../utils/tokenizer.rs"]
-mod tokenizer;
+use bangumi_rss::tokenizer;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
