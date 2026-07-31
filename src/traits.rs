@@ -59,6 +59,9 @@ pub trait TorrentDownloader: Send + Sync {
     /// Pause (stop) a download task.  For BT downloads this also pauses seeding.
     fn pause(&self, infohash: &str) -> anyhow::Result<()>;
 
+    /// Resume (start) a previously paused download task.
+    fn resume(&self, infohash: &str) -> anyhow::Result<()>;
+
     /// Remove a download task from the downloader.
     ///
     /// If `delete_files` is false, the downloaded data is preserved on disk.

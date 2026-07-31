@@ -6,7 +6,7 @@
 //! Auth is session-cookie based; the SID is cached in a `Mutex` and
 //! refreshed on 403 responses.
 
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use crate::traits::{OpResult, TorrentDownloader};
 use crate::types::{CompletedDownload, DownloadSnapshot, DownloadState, TorrentFile};
@@ -55,12 +55,20 @@ impl QbittorrentDownloader {
             .and_then(|c| c.strip_prefix("SID="))
             .map(String::from)?;
 
-        *self.sid.lock().unwrap() = Some(sid.clone());
+        *self.sid_guard() = Some(sid.clone());
         Some(sid)
     }
 
+    /// Lock the cached SID, recovering from a poisoned mutex (aligned with transmission).
+    fn sid_guard(&self) -> MutexGuard<'_, Option<String>> {
+        self.sid.lock().unwrap_or_else(|poisoned| {
+            log::warn!("[qbittorrent] sid mutex poisoned, recovering");
+            poisoned.into_inner()
+        })
+    }
+
     fn ensure_sid(&self) -> Option<String> {
-        if let Some(ref sid) = *self.sid.lock().unwrap() {
+        if let Some(ref sid) = *self.sid_guard() {
             return Some(sid.clone());
         }
         self.login()
@@ -297,18 +305,21 @@ impl TorrentDownloader for QbittorrentDownloader {
     fn move_files(&self, infohash: &str, new_location: &str) -> anyhow::Result<OpResult> {
         self.post_form(
             "torrents/setLocation",
-            &[
-                ("hashes", infohash),
-                ("location", new_location),
-            ],
+            &[("hashes", infohash), ("location", new_location)],
         )
         .ok_or_else(|| anyhow::anyhow!("qbittorrent: move failed for {infohash}"))?;
         Ok(OpResult::Done)
     }
 
     fn pause(&self, infohash: &str) -> anyhow::Result<()> {
-        self.post_form("torrents/pause", &[("hashes", infohash)])
+        self.post_form("torrents/stop", &[("hashes", infohash)])
             .ok_or_else(|| anyhow::anyhow!("qbittorrent: pause failed for {infohash}"))?;
+        Ok(())
+    }
+
+    fn resume(&self, infohash: &str) -> anyhow::Result<()> {
+        self.post_form("torrents/start", &[("hashes", infohash)])
+            .ok_or_else(|| anyhow::anyhow!("qbittorrent: resume failed for {infohash}"))?;
         Ok(())
     }
 

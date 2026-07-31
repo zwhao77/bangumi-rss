@@ -224,6 +224,13 @@ impl TorrentDownloader for Aria2Downloader {
         Ok(())
     }
 
+    fn resume(&self, infohash: &str) -> anyhow::Result<()> {
+        let gid = self.with_gid(infohash)?;
+        self.rpc("unpause", &[serde_json::json!(gid)])
+            .ok_or_else(|| anyhow::anyhow!("aria2: resume failed for {infohash}"))?;
+        Ok(())
+    }
+
     fn remove(&self, infohash: &str, _delete_files: bool) -> anyhow::Result<()> {
         let gid = self.with_gid(infohash)?;
         self.rpc("remove", &[serde_json::json!(gid)])

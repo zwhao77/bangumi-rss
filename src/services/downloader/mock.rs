@@ -109,6 +109,11 @@ impl TorrentDownloader for MockDownloader {
         Ok(())
     }
 
+    fn resume(&self, infohash: &str) -> anyhow::Result<()> {
+        log::debug!("[mock-dl] resume: {infohash}");
+        Ok(())
+    }
+
     fn remove(&self, infohash: &str, _delete_files: bool) -> anyhow::Result<()> {
         log::debug!("[mock-dl] remove: {infohash}");
         Ok(())

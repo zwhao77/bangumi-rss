@@ -281,7 +281,9 @@ impl TorrentDownloader for TransmissionDownloader {
             }
             None => {
                 log::warn!("[transmission] rename_file failed: infohash={infohash}");
-                Err(anyhow::anyhow!("transmission: rename_file failed for {infohash}"))
+                Err(anyhow::anyhow!(
+                    "transmission: rename_file failed for {infohash}"
+                ))
             }
         }
     }
@@ -304,7 +306,9 @@ impl TorrentDownloader for TransmissionDownloader {
             }
             None => {
                 log::warn!("[transmission] move_files failed: infohash={infohash}");
-                Err(anyhow::anyhow!("transmission: move_files failed for {infohash}"))
+                Err(anyhow::anyhow!(
+                    "transmission: move_files failed for {infohash}"
+                ))
             }
         }
     }
@@ -324,6 +328,27 @@ impl TorrentDownloader for TransmissionDownloader {
             None => {
                 log::warn!("[transmission] pause failed: infohash={infohash}");
                 Err(anyhow::anyhow!("transmission: pause failed for {infohash}"))
+            }
+        }
+    }
+
+    fn resume(&self, infohash: &str) -> anyhow::Result<()> {
+        let result = self.rpc(
+            "torrent-start-now",
+            &serde_json::json!({
+                "ids": [infohash],
+            }),
+        );
+        match result {
+            Some(_) => {
+                log::info!("[transmission] resume: infohash={infohash}");
+                Ok(())
+            }
+            None => {
+                log::warn!("[transmission] resume failed: infohash={infohash}");
+                Err(anyhow::anyhow!(
+                    "transmission: resume failed for {infohash}"
+                ))
             }
         }
     }

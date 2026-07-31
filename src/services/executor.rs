@@ -243,15 +243,36 @@ impl EffectExecutor {
 
         // Step 2: Try downloader-mediated pause + move + rename.
         // If any step fails, fall back to filesystem operations.
-        let succeeded = self
+        let ops_ok = self
             .try_downloader_ops(infohash, &mut resolved, &season_dir)
-            .is_ok()
+            .inspect_err(|e| {
+                log::warn!(
+                    "downloader ops failed for {}: {e:#}",
+                    &infohash[..infohash.len().min(16)]
+                )
+            })
+            .is_ok();
+        let succeeded = ops_ok
             || self
                 .try_filesystem_fallback(infohash, &resolved, &season_dir)
+                .inspect_err(|e| {
+                    log::warn!(
+                        "filesystem fallback failed for {}: {e:#}",
+                        &infohash[..infohash.len().min(16)]
+                    )
+                })
                 .is_ok();
 
         if succeeded {
             log::info!("completed: {}", &infohash[..infohash.len().min(16)]);
+
+            if ops_ok {
+                // Downloader ops succeeded: torrent is paused, resume for seeding.
+                if let Err(e) = self.downloader.resume(infohash) {
+                    log::warn!("resume after ops failed: {e}");
+                }
+            }
+            // Fallback path already called remove() — no resume needed.
 
             // Step 3: Emit EpisodeMovedToLibrary events.
             for r in &resolved {
@@ -268,6 +289,10 @@ impl EffectExecutor {
                 "both downloader ops and filesystem fallback failed for {}",
                 &infohash[..infohash.len().min(16)]
             );
+            // Resume torrent so it can keep seeding — it was paused in try_downloader_ops.
+            if let Err(e) = self.downloader.resume(infohash) {
+                log::warn!("resume after handle failure also failed: {e}");
+            }
             self.event_tx
                 .send(Event::EpisodeHandleFailed {
                     infohash: infohash.to_string(),
