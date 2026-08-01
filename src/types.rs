@@ -169,9 +169,9 @@ impl Default for FeedPreview {
 pub struct BangumiInfo {
     /// Bangumi subject ID.
     pub bangumi_id: u32,
-    /// Official Chinese name (e.g. "星海物语").
+    /// Official Chinese name (e.g. "虚构动画").
     pub name_cn: String,
-    /// Original name (e.g. "星海の物語").
+    /// Original name (e.g. "非現実アニメ").
     pub name: String,
     /// Synopsis (truncated to ~200 chars).
     pub summary: String,
