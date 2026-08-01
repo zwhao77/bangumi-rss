@@ -49,7 +49,7 @@ fn episode_keys_match(a: &EpisodeKey, b: &EpisodeKey) -> bool {
     a.anime == b.anime && a.episode == b.episode
 }
 
-/// Build a standardised output filename, e.g. `"葬送的芙莉莲 S02E01.mkv"`.
+/// Build a standardised output filename, e.g. `"星海物语 S02E01.mkv"`.
 fn key_to_target_name(key: &EpisodeKey, ext: &str) -> String {
     format!(
         "{} S{:02}E{:02}.{ext}",
@@ -141,7 +141,7 @@ mod tests {
 
     fn anime() -> AnimeIdentity {
         AnimeIdentity {
-            name: "葬送的芙莉莲".into(),
+            name: "星海物语".into(),
             season: 2,
         }
     }
@@ -150,12 +150,12 @@ mod tests {
     fn resolve_matches_episode() {
         let files = vec![
             TorrentFile {
-                path: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
-                name: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
+                path: "[ANi] 星海物语 - 01 [1080P].mp4".into(),
+                name: "[ANi] 星海物语 - 01 [1080P].mp4".into(),
             },
             TorrentFile {
-                path: "[ANi] 葬送的芙莉莲 - 02 [1080P].mp4".into(),
-                name: "[ANi] 葬送的芙莉莲 - 02 [1080P].mp4".into(),
+                path: "[ANi] 星海物语 - 02 [1080P].mp4".into(),
+                name: "[ANi] 星海物语 - 02 [1080P].mp4".into(),
             },
             TorrentFile {
                 path: "not-a-video.txt".into(),
@@ -176,7 +176,7 @@ mod tests {
         let resolved = resolve_files(&files, &record, "/downloads", "/anime");
         assert_eq!(resolved.len(), 2);
         assert_eq!(resolved[0].key.episode, 1);
-        assert_eq!(resolved[0].target_name, "葬送的芙莉莲 S02E01.mp4");
+        assert_eq!(resolved[0].target_name, "星海物语 S02E01.mp4");
         assert_eq!(resolved[1].key.episode, 2);
         assert!(resolved[0].from.to_str().unwrap().contains("/downloads/"));
         assert!(
@@ -184,15 +184,15 @@ mod tests {
                 .to
                 .to_str()
                 .unwrap()
-                .contains("/anime/葬送的芙莉莲/S02/")
+                .contains("/anime/星海物语/S02/")
         );
     }
 
     #[test]
     fn file_to_episode_key_works() {
-        let key = file_to_episode_key("[ANi] 葬送的芙莉莲 - 01 [1080P].mp4", &anime()).unwrap();
+        let key = file_to_episode_key("[ANi] 星海物语 - 01 [1080P].mp4", &anime()).unwrap();
         assert_eq!(key.episode, 1);
-        assert_eq!(key.anime.name, "葬送的芙莉莲");
+        assert_eq!(key.anime.name, "星海物语");
     }
 
     #[test]
@@ -219,14 +219,14 @@ mod tests {
             anime: anime(),
             episode: 5,
         };
-        assert_eq!(key_to_target_name(&key, "mkv"), "葬送的芙莉莲 S02E05.mkv");
+        assert_eq!(key_to_target_name(&key, "mkv"), "星海物语 S02E05.mkv");
     }
 
     #[test]
     fn resolve_expected_episode_overrides() {
         let files = vec![TorrentFile {
-            name: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
-            path: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
+            name: "[ANi] 星海物语 - 01 [1080P].mp4".into(),
+            path: "[ANi] 星海物语 - 01 [1080P].mp4".into(),
         }];
         let record = EpisodeRecord {
             infohash: "DEADBEEF".into(),
@@ -265,8 +265,8 @@ mod tests {
     #[test]
     fn resolve_episode_zero_filtered() {
         let files = vec![TorrentFile {
-            name: "[ANi] 葬送的芙莉莲 - 00 [1080P].mp4".into(),
-            path: "[ANi] 葬送的芙莉莲 - 00 [1080P].mp4".into(),
+            name: "[ANi] 星海物语 - 00 [1080P].mp4".into(),
+            path: "[ANi] 星海物语 - 00 [1080P].mp4".into(),
         }];
         let record = EpisodeRecord {
             infohash: "DEADBEEF".into(),
@@ -287,12 +287,12 @@ mod tests {
     fn resolve_multi_file_second_uses_tokenizer() {
         let files = vec![
             TorrentFile {
-                name: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
-                path: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
+                name: "[ANi] 星海物语 - 01 [1080P].mp4".into(),
+                path: "[ANi] 星海物语 - 01 [1080P].mp4".into(),
             },
             TorrentFile {
-                name: "[ANi] 葬送的芙莉莲 - 05 [1080P].mp4".into(),
-                path: "[ANi] 葬送的芙莉莲 - 05 [1080P].mp4".into(),
+                name: "[ANi] 星海物语 - 05 [1080P].mp4".into(),
+                path: "[ANi] 星海物语 - 05 [1080P].mp4".into(),
             },
         ];
         let record = EpisodeRecord {

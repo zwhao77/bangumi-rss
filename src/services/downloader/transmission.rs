@@ -378,17 +378,18 @@ impl TorrentDownloader for TransmissionDownloader {
     }
 
     fn poll_completed(&self) -> anyhow::Result<Vec<CompletedDownload>> {
-        let result = self.rpc(
-            "torrent_get",
-            &serde_json::json!({
-                "fields": ["id", "hash_string", "status", "percent_done", "error"],
-            }),
-        );
-        let torrents = result
-            .as_ref()
-            .and_then(|r| r["torrents"].as_array())
-            .cloned()
-            .unwrap_or_default();
+        // A failed query must return Err — “no completed tasks” vs “query failed” is the caller’s call.
+        let torrents = self
+            .rpc(
+                "torrent_get",
+                &serde_json::json!({
+                    "fields": ["id", "hash_string", "status", "percent_done", "error"],
+                }),
+            )
+            .and_then(|r| r["torrents"].as_array().cloned())
+            .ok_or_else(|| {
+                anyhow::anyhow!("transmission: torrent_get failed in poll_completed")
+            })?;
 
         let mut completed = Vec::new();
         for t in &torrents {
@@ -414,17 +415,16 @@ impl TorrentDownloader for TransmissionDownloader {
     }
 
     fn poll_failed(&self) -> anyhow::Result<Vec<CompletedDownload>> {
-        let result = self.rpc(
-            "torrent_get",
-            &serde_json::json!({
-                "fields": ["id", "hash_string", "status", "error", "error_string"],
-            }),
-        );
-        let torrents = result
-            .as_ref()
-            .and_then(|r| r["torrents"].as_array())
-            .cloned()
-            .unwrap_or_default();
+        // A failed query must return Err — “no failed tasks” vs “query failed” is the caller’s call.
+        let torrents = self
+            .rpc(
+                "torrent_get",
+                &serde_json::json!({
+                    "fields": ["id", "hash_string", "status", "error", "error_string"],
+                }),
+            )
+            .and_then(|r| r["torrents"].as_array().cloned())
+            .ok_or_else(|| anyhow::anyhow!("transmission: torrent_get failed in poll_failed"))?;
 
         let mut failed = Vec::new();
         for t in &torrents {
@@ -451,20 +451,21 @@ impl TorrentDownloader for TransmissionDownloader {
     }
 
     fn query_all(&self) -> anyhow::Result<Vec<DownloadSnapshot>> {
-        let result = self.rpc(
-            "torrent_get",
-            &serde_json::json!({
-                "fields": [
-                    "id", "hash_string", "name", "status",
-                    "percent_done", "rate_download", "total_size",
-                ],
-            }),
-        );
-        let torrents = result
-            .as_ref()
-            .and_then(|r| r["torrents"].as_array())
-            .cloned()
-            .unwrap_or_default();
+        // When the downloader is unreachable, rpc() returns None — must error
+        // instead of returning empty, or reconciliation would treat every Downloading
+        // task as vanished and re-download everything.
+        let result = self
+            .rpc(
+                "torrent_get",
+                &serde_json::json!({
+                    "fields": [
+                        "id", "hash_string", "name", "status",
+                        "percent_done", "rate_download", "total_size",
+                    ],
+                }),
+            )
+            .ok_or_else(|| anyhow::anyhow!("transmission: torrent_get failed in query_all"))?;
+        let torrents = result["torrents"].as_array().cloned().unwrap_or_default();
 
         let mut snapshots = Vec::new();
         for t in &torrents {

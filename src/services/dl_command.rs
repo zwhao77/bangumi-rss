@@ -25,6 +25,7 @@ pub(crate) enum DlCommand {
         feed_id: Uuid,
     },
     AddBytes {
+        uri: String,
         data: Vec<u8>,
         dir: String,
         feed_id: Uuid,
@@ -85,11 +86,17 @@ impl DlThread {
     /// Submit raw `.torrent` bytes.
     pub(crate) fn send_add_bytes(
         &self,
+        uri: String,
         data: Vec<u8>,
         dir: String,
         feed_id: Uuid,
     ) -> Result<(), TrySendError<DlCommand>> {
-        self._send(DlCommand::AddBytes { data, dir, feed_id })
+        self._send(DlCommand::AddBytes {
+            uri,
+            data,
+            dir,
+            feed_id,
+        })
     }
 
     /// Submit a completed-task poll.
@@ -164,13 +171,18 @@ fn run(
                 }
                 Err(e) => log::warn!("[dl-thread] add_uri failed: {e}"),
             },
-            DlCommand::AddBytes { data, dir, feed_id } => match dl.add_torrent_bytes(&data, &dir) {
+            DlCommand::AddBytes {
+                uri,
+                data,
+                dir,
+                feed_id,
+            } => match dl.add_torrent_bytes(&data, &dir) {
                 Ok(ref ih) if !ih.is_empty() => {
                     log::info!("[dl-thread] add_bytes: infohash={ih}");
                     let _ = event_tx.send(Event::DownloadStarted {
                         infohash: ih.clone(),
                         feed_id,
-                        torrent_url: String::new(),
+                        torrent_url: uri,
                     });
                 }
                 Ok(_) => log::warn!("[dl-thread] add_bytes returned empty infohash"),
@@ -378,6 +390,40 @@ mod tests {
                     !infohash.is_empty(),
                     "mock should generate non-empty infohash"
                 );
+                assert_eq!(f, feed_id);
+            }
+            other => panic!("expected DownloadStarted, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn add_bytes_produces_download_started_with_url() {
+        let dl = Arc::new(MockDownloader::new());
+        let (event_tx, event_rx) = bounded::<Event>(4);
+        let (effect_tx, _) = bounded::<Effect>(4);
+        let thread = DlThread::spawn(dl, event_tx, effect_tx);
+        let feed_id = uuid::Uuid::new_v4();
+        let url = "https://example.com/anime.torrent";
+
+        thread
+            .send_add_bytes(
+                url.into(),
+                b"d8:announce0:e".to_vec(),
+                "/dl".into(),
+                feed_id,
+            )
+            .unwrap();
+
+        let ev = event_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("should receive DownloadStarted");
+        match ev {
+            Event::DownloadStarted {
+                torrent_url,
+                feed_id: f,
+                ..
+            } => {
+                assert_eq!(torrent_url, url, "torrent_url must be preserved");
                 assert_eq!(f, feed_id);
             }
             other => panic!("expected DownloadStarted, got {other:?}"),

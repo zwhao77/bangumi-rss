@@ -74,7 +74,7 @@ impl QbittorrentDownloader {
         if !(200..300).contains(&status) {
             anyhow::bail!("qbittorrent: POST {path} returned {status}: {text}");
         }
-        // 写端点返回空 body / "Ok.";只有 add 返回 JSON → 空则视为 Null
+        // Write endpoints return an empty body / "Ok."; only add returns JSON → treat empty as Null
         if text.trim().is_empty() || text.trim() == "Ok." {
             Ok(serde_json::Value::Null)
         } else {
@@ -152,8 +152,8 @@ impl QbittorrentDownloader {
             .collect()
     }
 
-    /// URL 方式添加 .torrent 是异步的:`torrents/add` 返回 pending。
-    /// 记录添加前的 hash 集合,轮询直到出现新增 torrent(带超时兜底)。
+    /// Adding a .torrent by URL is async: `torrents/add` reports it as pending.
+    /// Snapshot existing hashes, then poll until a new torrent appears (with timeout).
     fn wait_for_added(&self, dir: &str) -> anyhow::Result<String> {
         let before = self.all_hashes();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -192,7 +192,7 @@ impl TorrentDownloader for QbittorrentDownloader {
             &[("urls", uri), ("savepath", dir), ("autoTMM", "false")],
         )?;
 
-        // 同步添加(magnet / 直链)→ 响应直接给 hash
+        // Sync add (magnet / direct link) → the response carries the hash directly
         if let Some(h) = json["added_torrent_ids"]
             .as_array()
             .and_then(|a| a.first())
@@ -202,7 +202,7 @@ impl TorrentDownloader for QbittorrentDownloader {
             return Ok(h.to_string());
         }
 
-        // URL 异步添加 → 简单轮询等待
+        // Async URL add → short polling fallback
         log::debug!("[qbittorrent] add_uri: pending, polling for torrent in {dir}");
         self.wait_for_added(dir)
     }
@@ -229,10 +229,11 @@ impl TorrentDownloader for QbittorrentDownloader {
     }
 
     fn list_files(&self, infohash: &str) -> anyhow::Result<Vec<TorrentFile>> {
+        // Query failure (network / HTTP error) → Err; query OK but no files → Ok(empty)
         let arr = self
             .get(&format!("torrents/files?hash={}", infohash))
             .and_then(|r| r.as_array().cloned())
-            .unwrap_or_default();
+            .ok_or_else(|| anyhow::anyhow!("qbittorrent: list_files failed for {infohash}"))?;
         Ok(arr
             .iter()
             .map(|f| {
@@ -296,10 +297,11 @@ impl TorrentDownloader for QbittorrentDownloader {
     }
 
     fn poll_completed(&self) -> anyhow::Result<Vec<CompletedDownload>> {
+        // A failed query must return Err — “no completed tasks” vs “query failed” is the caller’s call.
         let arr = self
             .get("torrents/info?filter=completed")
             .and_then(|r| r.as_array().cloned())
-            .unwrap_or_default();
+            .ok_or_else(|| anyhow::anyhow!("qbittorrent: poll_completed failed"))?;
         Ok(arr
             .iter()
             .filter_map(|t| {
@@ -311,10 +313,11 @@ impl TorrentDownloader for QbittorrentDownloader {
     }
 
     fn poll_failed(&self) -> anyhow::Result<Vec<CompletedDownload>> {
+        // A failed query must return Err — “no failed tasks” vs “query failed” is the caller’s call.
         let arr = self
             .get("torrents/info?filter=errored")
             .and_then(|r| r.as_array().cloned())
-            .unwrap_or_default();
+            .ok_or_else(|| anyhow::anyhow!("qbittorrent: poll_failed failed"))?;
         Ok(arr
             .iter()
             .filter_map(|t| {
@@ -326,10 +329,13 @@ impl TorrentDownloader for QbittorrentDownloader {
     }
 
     fn query_all(&self) -> anyhow::Result<Vec<DownloadSnapshot>> {
+        // When the downloader is unreachable, get() returns None — must error
+        // instead of returning empty, or reconciliation would treat every Downloading
+        // task as vanished and re-download everything.
         let arr = self
             .get("torrents/info")
             .and_then(|r| r.as_array().cloned())
-            .unwrap_or_default();
+            .ok_or_else(|| anyhow::anyhow!("qbittorrent: query_all failed"))?;
 
         Ok(arr
             .iter()

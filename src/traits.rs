@@ -72,11 +72,21 @@ pub trait TorrentDownloader: Send + Sync {
     fn poll_completed(&self) -> anyhow::Result<Vec<CompletedDownload>>;
 
     /// Poll for recently failed / errored downloads.
+    ///
+    /// Contract: `Err` = query failed (downloader unreachable / RPC error); `Ok(empty)` =
+    /// query succeeded but there are no failed tasks. Whether “none” vs “cannot
+    /// query” matters is decided by the caller — implementations MUST NOT swallow
+    /// a failed query into `Ok(empty)`.
     fn poll_failed(&self) -> anyhow::Result<Vec<CompletedDownload>> {
         Ok(vec![])
     }
 
     /// Query all current tasks (active + stopped) from the downloader.
+    ///
+    /// Contract: `Err` = query failed; `Ok(empty)` = query succeeded but the downloader
+    /// has no tasks. reconciliation relies on this — swallowing a failed query into
+    /// `Ok(empty)` would mark every Downloading task as vanished and re-download
+    /// them. Unimplemented defaults to an explicit error.
     fn query_all(&self) -> anyhow::Result<Vec<crate::types::DownloadSnapshot>> {
         anyhow::bail!("not implemented")
     }

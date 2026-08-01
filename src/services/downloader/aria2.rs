@@ -57,24 +57,26 @@ impl Aria2Downloader {
     /// Fetch infohash → gid mapping for a slice of stopped tasks.
     ///
     /// `offset` is 0-based.  Returns an empty map when there are no more tasks.
-    fn fetch_gid_map_range(&self, offset: i32, limit: i32) -> HashMap<String, String> {
-        self.rpc(
-            "tellStopped",
-            &[
-                serde_json::json!(offset),
-                serde_json::json!(limit),
-                serde_json::json!(["gid", "infoHash"]),
-            ],
-        )
-        .and_then(|r| r.as_array().cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|t| {
-            let ih = t["infoHash"].as_str()?;
-            let gid = t["gid"].as_str()?;
-            Some((ih.to_string(), gid.to_string()))
-        })
-        .collect()
+    fn fetch_gid_map_range(&self, offset: i32, limit: i32) -> anyhow::Result<HashMap<String, String>> {
+        let arr = self
+            .rpc(
+                "tellStopped",
+                &[
+                    serde_json::json!(offset),
+                    serde_json::json!(limit),
+                    serde_json::json!(["gid", "infoHash"]),
+                ],
+            )
+            .and_then(|r| r.as_array().cloned())
+            .ok_or_else(|| anyhow::anyhow!("aria2: tellStopped failed (offset={offset})"))?;
+        Ok(arr
+            .into_iter()
+            .filter_map(|t| {
+                let ih = t["infoHash"].as_str()?;
+                let gid = t["gid"].as_str()?;
+                Some((ih.to_string(), gid.to_string()))
+            })
+            .collect())
     }
 
     /// Resolve infohash → gid.
@@ -86,7 +88,7 @@ impl Aria2Downloader {
         let active: Vec<_> = self
             .rpc("tellActive", &[serde_json::json!(["gid", "infoHash"])])
             .and_then(|r| r.as_array().cloned())
-            .unwrap_or_default()
+            .ok_or_else(|| anyhow::anyhow!("aria2: tellActive failed in with_gid"))?
             .into_iter()
             .filter_map(|t| {
                 let ih = t["infoHash"].as_str()?;
@@ -104,10 +106,7 @@ impl Aria2Downloader {
         let page: i32 = 1000;
         let mut offset: i32 = 0;
         loop {
-            let map = self.fetch_gid_map_range(offset, page);
-            if map.is_empty() {
-                break;
-            }
+            let map = self.fetch_gid_map_range(offset, page)?;
             if let Some(gid) = map.get(infohash) {
                 return Ok(gid.clone());
             }
@@ -182,10 +181,11 @@ impl TorrentDownloader for Aria2Downloader {
 
     fn list_files(&self, infohash: &str) -> anyhow::Result<Vec<TorrentFile>> {
         let gid = self.with_gid(infohash)?;
-        let result = self.rpc("getFiles", &[serde_json::json!(gid)]);
-        let arr = result
+        // Query failure (network / RPC error) → Err; query OK but no files → Ok(empty)
+        let arr = self
+            .rpc("getFiles", &[serde_json::json!(gid)])
             .and_then(|r| r.as_array().cloned())
-            .unwrap_or_default();
+            .ok_or_else(|| anyhow::anyhow!("aria2: getFiles failed for {infohash}"))?;
         Ok(arr
             .iter()
             .filter_map(|f| {
@@ -242,35 +242,37 @@ impl TorrentDownloader for Aria2Downloader {
 
     fn poll_completed(&self) -> anyhow::Result<Vec<CompletedDownload>> {
         // Query stopped tasks with status "complete".
-        let stopped = self.rpc(
-            "tellStopped",
-            &[
-                serde_json::json!(-1),
-                serde_json::json!(1000),
-                serde_json::json!(["gid", "infoHash", "status"]),
-            ],
-        );
+        // A failed query must return Err — “no completed tasks” vs “query failed” is the caller’s call.
+        let stopped = self
+            .rpc(
+                "tellStopped",
+                &[
+                    serde_json::json!(-1),
+                    serde_json::json!(1000),
+                    serde_json::json!(["gid", "infoHash", "status"]),
+                ],
+            )
+            .and_then(|r| r.as_array().cloned())
+            .ok_or_else(|| anyhow::anyhow!("aria2: tellStopped failed in poll_completed"))?;
         // Also query active tasks — those at 100% are seeding (= done).
-        let active = self.rpc(
-            "tellActive",
-            &[serde_json::json!([
-                "gid",
-                "infoHash",
-                "status",
-                "totalLength",
-                "completedLength"
-            ])],
-        );
+        let active = self
+            .rpc(
+                "tellActive",
+                &[serde_json::json!([
+                    "gid",
+                    "infoHash",
+                    "status",
+                    "totalLength",
+                    "completedLength"
+                ])],
+            )
+            .and_then(|r| r.as_array().cloned())
+            .ok_or_else(|| anyhow::anyhow!("aria2: tellActive failed in poll_completed"))?;
 
         let mut completed = Vec::new();
 
         // Stopped + complete.
-        for t in stopped
-            .as_ref()
-            .and_then(|r| r.as_array())
-            .cloned()
-            .unwrap_or_default()
-        {
+        for t in stopped {
             if t["status"].as_str() != Some("complete") {
                 continue;
             }
@@ -282,12 +284,7 @@ impl TorrentDownloader for Aria2Downloader {
         }
 
         // Active + 100% = seeding → treat as completed.
-        for t in active
-            .as_ref()
-            .and_then(|r| r.as_array())
-            .cloned()
-            .unwrap_or_default()
-        {
+        for t in active {
             let total: u64 = t["totalLength"]
                 .as_str()
                 .and_then(|s| s.parse().ok())
@@ -310,17 +307,18 @@ impl TorrentDownloader for Aria2Downloader {
     }
 
     fn poll_failed(&self) -> anyhow::Result<Vec<CompletedDownload>> {
-        let result = self.rpc(
-            "tellStopped",
-            &[
-                serde_json::json!(-1),
-                serde_json::json!(1000),
-                serde_json::json!(["gid", "infoHash", "status"]),
-            ],
-        );
-        let arr = result
+        // A failed query must return Err — “no failed tasks” vs “query failed” is the caller’s call.
+        let arr = self
+            .rpc(
+                "tellStopped",
+                &[
+                    serde_json::json!(-1),
+                    serde_json::json!(1000),
+                    serde_json::json!(["gid", "infoHash", "status"]),
+                ],
+            )
             .and_then(|r| r.as_array().cloned())
-            .unwrap_or_default();
+            .ok_or_else(|| anyhow::anyhow!("aria2: tellStopped failed in poll_failed"))?;
 
         let mut failed = Vec::new();
         for t in &arr {
@@ -339,7 +337,10 @@ impl TorrentDownloader for Aria2Downloader {
     fn query_all(&self) -> anyhow::Result<Vec<DownloadSnapshot>> {
         let mut snapshots = Vec::new();
 
-        let tasks = self
+        // When the downloader is unreachable, tellActive/tellStopped return None —
+        // must error instead of returning empty, or reconciliation would treat every
+        // Downloading task as vanished and re-download everything.
+        let active = self
             .rpc(
                 "tellActive",
                 &[serde_json::json!([
@@ -353,28 +354,27 @@ impl TorrentDownloader for Aria2Downloader {
                 ])],
             )
             .and_then(|r| r.as_array().cloned())
-            .unwrap_or_default()
-            .into_iter()
-            .chain(
-                self.rpc(
-                    "tellStopped",
-                    &[
-                        serde_json::json!(-1),
-                        serde_json::json!(1000),
-                        serde_json::json!([
-                            "gid",
-                            "infoHash",
-                            "status",
-                            "totalLength",
-                            "completedLength",
-                            "downloadSpeed",
-                            "bittorrent"
-                        ]),
-                    ],
-                )
-                .and_then(|r| r.as_array().cloned())
-                .unwrap_or_default(),
-            );
+            .ok_or_else(|| anyhow::anyhow!("aria2: tellActive failed in query_all"))?;
+        let stopped = self
+            .rpc(
+                "tellStopped",
+                &[
+                    serde_json::json!(-1),
+                    serde_json::json!(1000),
+                    serde_json::json!([
+                        "gid",
+                        "infoHash",
+                        "status",
+                        "totalLength",
+                        "completedLength",
+                        "downloadSpeed",
+                        "bittorrent"
+                    ]),
+                ],
+            )
+            .and_then(|r| r.as_array().cloned())
+            .ok_or_else(|| anyhow::anyhow!("aria2: tellStopped failed in query_all"))?;
+        let tasks = active.into_iter().chain(stopped);
 
         for t in tasks {
             let infohash = t["infoHash"].as_str().unwrap_or("").to_string();

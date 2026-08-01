@@ -95,9 +95,14 @@ impl EffectExecutor {
                 data,
                 save_path,
                 feed_id,
-                torrent_url: _,
+                torrent_url,
             } => {
-                self.dispatch_dl(self.dl_thread.send_add_bytes(data, save_path, feed_id));
+                self.dispatch_dl(self.dl_thread.send_add_bytes(
+                    torrent_url,
+                    data,
+                    save_path,
+                    feed_id,
+                ));
                 vec![]
             }
             Effect::Notify(notification) => self.do_notify(&notification),

@@ -639,7 +639,7 @@ mod tests {
         let (new_state, _effects) = reduce_confirm_feed(
             &state,
             "https://example.com/rss".into(),
-            "葬送的芙莉莲".into(),
+            "星海物语".into(),
             2,
             None,
             reply_tx,
@@ -647,7 +647,7 @@ mod tests {
 
         assert_eq!(new_state.feeds.len(), 1);
         let feed = new_state.feeds.values().next().unwrap();
-        assert_eq!(feed.anime.name, "葬送的芙莉莲");
+        assert_eq!(feed.anime.name, "星海物语");
         assert_eq!(feed.anime.season, 2);
         assert!(feed.confirmed);
         let resp = reply_rx.try_recv().unwrap();
@@ -662,7 +662,7 @@ mod tests {
             id: feed_id,
             url: "https://example.com/rss".into(),
             anime: AnimeIdentity {
-                name: "Oshi no Ko".into(),
+                name: "星海物语".into(),
                 season: 1,
             },
             confirmed: true,
@@ -675,8 +675,36 @@ mod tests {
         assert!(effects.is_empty());
         assert!(new_state.tracker.contains_key("DEADBEEF"));
         let record = new_state.tracker.get("DEADBEEF").unwrap();
-        assert_eq!(record.key.anime.name, "Oshi no Ko");
+        assert_eq!(record.key.anime.name, "星海物语");
         assert_eq!(record.status, RecordStatus::Downloading);
+    }
+
+    #[test]
+    fn download_started_inserts_seen_url() {
+        let mut state = empty_state();
+        let feed_id = Uuid::new_v4();
+        let feed = Feed {
+            id: feed_id,
+            url: "https://example.com/rss".into(),
+            anime: AnimeIdentity {
+                name: "星海物语".into(),
+                season: 1,
+            },
+            confirmed: true,
+            bangumi_info: None,
+        };
+        state.feeds.insert(feed_id, feed);
+
+        let url = "https://example.com/download/anime.torrent";
+        let (new_state, effects) =
+            reduce_download_started(&state, "DEADBEEF".into(), feed_id, url.into());
+        assert!(effects.is_empty());
+        assert!(
+            new_state.seen_urls.contains(url),
+            "seen_urls should contain the torrent URL"
+        );
+        let record = new_state.tracker.get("DEADBEEF").unwrap();
+        assert_eq!(record.torrent_url, url);
     }
 
     #[test]
@@ -687,7 +715,7 @@ mod tests {
             id: feed_id,
             url: "https://example.com/rss".into(),
             anime: AnimeIdentity {
-                name: "Oshi no Ko".into(),
+                name: "星海物语".into(),
                 season: 1,
             },
             confirmed: true,
@@ -717,7 +745,7 @@ mod tests {
             feed_id,
             key: EpisodeKey {
                 anime: AnimeIdentity {
-                    name: "Oshi no Ko".into(),
+                    name: "星海物语".into(),
                     season: 1,
                 },
                 episode: 0,
@@ -731,7 +759,7 @@ mod tests {
             &state,
             "DEADBEEF",
             1,
-            "/anime/Oshi no Ko/S01/Oshi no Ko S01E01.mkv".into(),
+            "/anime/星海物语/S01/星海物语 S01E01.mkv".into(),
         );
 
         assert_eq!(effects.len(), 1);
@@ -740,7 +768,7 @@ mod tests {
         assert_eq!(r.status, RecordStatus::InLibrary);
         assert_eq!(
             r.library_path.as_deref(),
-            Some("/anime/Oshi no Ko/S01/Oshi no Ko S01E01.mkv")
+            Some("/anime/星海物语/S01/星海物语 S01E01.mkv")
         );
     }
 
@@ -754,7 +782,7 @@ mod tests {
             feed_id,
             key: EpisodeKey {
                 anime: AnimeIdentity {
-                    name: "葬送的芙莉莲".into(),
+                    name: "星海物语".into(),
                     season: 2,
                 },
                 episode: 38,
@@ -776,7 +804,7 @@ mod tests {
         let (new_state, _effects) = reduce_downloads_refreshed(&state, snapshots);
         assert_eq!(new_state.cached_downloads.len(), 1);
         let info = &new_state.cached_downloads[0];
-        assert_eq!(info.feed_name, "葬送的芙莉莲");
+        assert_eq!(info.feed_name, "星海物语");
         assert_eq!(info.season, 2);
     }
 
@@ -787,7 +815,7 @@ mod tests {
         let (state2, _) = reduce_confirm_feed(
             &state,
             "https://example.com/rss".into(),
-            "Oshi no Ko".into(),
+            "星海物语".into(),
             1,
             None,
             reply_tx,
