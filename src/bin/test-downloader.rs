@@ -218,9 +218,7 @@ fn run_concurrent(dl: &Arc<dyn TorrentDownloader>, threads: usize, iterations: u
             for i in 0..iterations {
                 let op = (t + i) % 3;
                 let r: Result<String, anyhow::Error> = match op {
-                    0 => dl
-                        .check_connection()
-                        .map(|()| "connected".to_string()),
+                    0 => dl.check_connection().map(|()| "connected".to_string()),
                     1 => dl
                         .query_all()
                         .map(|v: Vec<DownloadSnapshot>| format!("{} items", v.len())),
@@ -247,7 +245,9 @@ fn run_concurrent(dl: &Arc<dyn TorrentDownloader>, threads: usize, iterations: u
     }
     let elapsed = start.elapsed();
     let total = total_ok + total_fail;
-    println!("────── concurrent: {total_ok}/{total} ok, {total_fail} fail, elapsed {elapsed:?} ──────");
+    println!(
+        "────── concurrent: {total_ok}/{total} ok, {total_fail} fail, elapsed {elapsed:?} ──────"
+    );
     if total_fail > 0 {
         std::process::exit(1);
     }

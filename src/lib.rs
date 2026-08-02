@@ -1,11 +1,17 @@
 //! Library crate — single module declaration point for all binaries.
 //!
-//! `core` is public because `main.rs` (the binary) consumes it directly;
+//! The public surface is the union of what the three binaries need:
+//! - `main` (server): `config::Config` + `run`
+//! - `test-downloader` (tool): `config`, `services` (downloader re-exports),
+//!   `traits`, `types`
+//! - `title-parse` (tool): `tokenizer`
+//!
+//! `app` and `core` stay crate-private (consumed internally via `app::run`);
 //! `utils` stays crate-private; `tokenizer` is re-exported for dev tools.
 
-pub mod app;
+mod app;
 pub mod config;
-pub mod core;
+mod core;
 pub mod services;
 pub mod traits;
 pub mod types;
