@@ -11,17 +11,42 @@
 git clone https://github.com/zwhao77/bangumi-rss.git
 cd bangumi-rss
 
-# 2. 启动 aria2 并开启 JSON-RPC
-aria2c --enable-rpc --rpc-listen-all --rpc-allow-origin-all &
-
-# 3. 编译（res/index.html 和 res/style.css 会在编译时嵌入二进制）
+# 2. 编译（res/index.html 和 res/style.css 会在编译时嵌入二进制）
 cargo build --release
+```
 
-# 4. 运行
+### 3. 启动下载后端（三选一，见[下载器选择](#下载器选择)）
+
+```bash
+# Transmission —— BT 推荐
+transmission-daemon --rpc-port 9091 &
+
+# qBittorrent —— 无头模式，WebUI 在 :8080。注意：5.2+ 首次启动会生成临时密码
+# 而非默认密码；从启动日志读取，登录 WebUI 设置自己的密码后再用于下方配置。
+qbittorrent-nox --webui-port=8080 --confirm-legal-notice &
+
+# aria2 —— 轻量、无需守护进程
+aria2c --enable-rpc --rpc-listen-all --rpc-allow-origin-all &
+```
+
+### 4. 运行（与所选后端对应）
+
+```bash
+# Transmission
+DOWNLOADER=transmission \
+TRANSMISSION_RPC_URL=http://localhost:9091/transmission/rpc \
+DOWNLOAD_DIR=/downloads LIBRARY_DIR=/anime ./target/release/bangumi-rss
+
+# qBittorrent（密码换成你设置的值，或用日志里的临时密码）
+DOWNLOADER=qbittorrent \
+QBITTORRENT_URL=http://localhost:8080 \
+QBITTORRENT_USER=admin QBITTORRENT_PASS=你的密码 \
+DOWNLOAD_DIR=/downloads LIBRARY_DIR=/anime ./target/release/bangumi-rss
+
+# aria2
+DOWNLOADER=aria2 \
 ARIA2_RPC_URL=http://localhost:6800/jsonrpc \
-DOWNLOAD_DIR=/downloads \
-LIBRARY_DIR=/anime \
-./target/release/bangumi-rss
+DOWNLOAD_DIR=/downloads LIBRARY_DIR=/anime ./target/release/bangumi-rss
 ```
 
 打开 `http://localhost:7893` 即可订阅和管理。
@@ -46,13 +71,14 @@ LIBRARY_DIR=/anime \
 | `RSS_INTERVAL` | `900` | RSS 轮询间隔（秒） |
 | `POLL_INTERVAL` | `30` | 下载状态轮询间隔（秒） |
 | `ARIA2_RPC_URL` | `http://localhost:6800/jsonrpc` | Aria2 JSON-RPC 端点 |
+| `ARIA2_RPC_TOKEN` | (空) | Aria2 RPC 密钥（`--rpc-secret`） |
 | `DOWNLOAD_DIR` | `/downloads` | 种子暂存目录 |
 | `LIBRARY_DIR` | `/anime` | 媒体库输出目录 |
 | `DOWNLOADER` | `aria2` | `aria2`、`qbittorrent` 或 `transmission` |
 | `MOCK_DOWNLOADER` | `false` | 启用内存模拟下载器（测试用） |
 | `QBITTORRENT_URL` | `http://localhost:8080` | qBittorrent Web UI 地址 |
 | `QBITTORRENT_USER` | `admin` | qBittorrent 用户名 |
-| `QBITTORRENT_PASS` | `adminadmin` | qBittorrent 密码 |
+| `QBITTORRENT_PASS` | `adminadmin` | qBittorrent 密码（5.2+ 首次启动为临时密码，请自行设置） |
 | `TRANSMISSION_RPC_URL` | `http://localhost:9091/transmission/rpc` | Transmission RPC 端点 |
 | `TRANSMISSION_USER` | (空) | Transmission HTTP Basic Auth 用户名 |
 | `TRANSMISSION_PASS` | (空) | Transmission HTTP Basic Auth 密码 |
@@ -60,6 +86,8 @@ LIBRARY_DIR=/anime \
 | `TORRENT_CONCURRENCY` | `4` | Worker pool 线程数（RSS + 种子下载） |
 | `QUEUE_CAPACITY` | `512` | Worker pool 队列容量 |
 | `BIND_ADDR` | `127.0.0.1` | HTTP 监听地址（`0.0.0.0` 监听所有接口） |
+| `MAX_CONNECTIONS` | `16` | Rouille 线程池连接数 |
+| `MAX_QUEUE` | `0` | HTTP 连接队列上限 |
 | `AUTH_USERNAME` | — | Basic Auth 用户名（留空不启用） |
 | `AUTH_PASSWORD` | — | Basic Auth 密码 |
 | `RUST_LOG` | `info` | 日志级别（设为 `warn` 可减少输出） |
@@ -70,11 +98,14 @@ LIBRARY_DIR=/anime \
 
 ## 下载器选择
 
-| 下载器 | rename_file | move_files | 做种保留 | 推荐场景 |
+| 下载器 | rename_file | move_files | 做种保留 | 特点 |
 |---|---|---|---|---|
-| **Transmission** (4.1.0+) | ✅ `torrent_rename_path` | ✅ `torrent_set_location` | ✅ | 路由器 / NAS，默认推荐 |
-| **qBittorrent** | ✅ `torrents/renameFile` | ✅ `torrents/setLocation` | ✅ | x86 软路由 / NAS（≥512MB RAM） |
+| **Transmission** (4.1.0+) | ✅ `torrent_rename_path` | ✅ `torrent_set_location` | ✅ | 轻量、简单、JSON-RPC 2.0 完善、OpenWrt 官方包 |
+| **qBittorrent** (5.0+) | ✅ `torrents/renameFile` | ✅ `torrents/setLocation` | ✅ | 功能全面；对等/连接处理优化（含末尾块）在现代网络下通常更快 |
 | **aria2** | ❌ 不支持 BT 多文件重命名 | ❌ 无内置 move API | ❌ 下载完成后立即停止 | 轻量直链下载，或作为后备方案 |
+
+> **基于 API 的支持**：bangumi-rss 通过各下载器的 HTTP API 驱动它们（统一抽象在 trait 之后）——任何 API 兼容的客户端都可用（如 qBittorrent 增强版与原版共用 `/api/v2/*`）。目前没有跨客户端的通用下载器协议，各家 API 各自为政。
+> **认证方式需注意**：qBittorrent 要求 ≥ 5.0——5.0+ 使用用户名/密码（HTTP Basic）；4.x 用 cookie（SID）登录，不受支持；≥ 5.2 还支持 API key（Bearer）。
 
 ### aria2 的 BitTorrent 限制
 
@@ -84,7 +115,10 @@ aria2 对于 BitTorrent 种子存在以下已知限制：
 2. **不支持下载器感知的移动**：aria2 没有类似 `torrent_set_location` 或 `setLocation` 的 API，移文件后下载器不知道新位置。
 3. **做种中断**：由于以上限制，aria2 在下载完成后会被停止并从列表中移除，再做文件系统搬移。这种行为**违背 BT 共享精神**——如果你希望持续做种，请使用 Transmission 或 qBittorrent。
 
-> **建议**：如果下载内容主要是 BT 种子，优先选择 **Transmission**。它的 JSON-RPC 2.0 接口完善、内存占用低（空闲 15-25MB）、在 OpenWrt 上有官方包，且支持 `rename_path` + `set_location` 避免做种中断。
+> **如何选择？** bangumi-rss 不替你做决定，选择适合你环境的下载器：
+> - **qBittorrent** 在现代网络下通常是更好的默认选择：功能更全，对等/连接处理（含末尾块 endgame 优化）通常更快；代价是内存占用更高。
+> - **Transmission** 适合低内存设备（路由器 / NAS）：简单、文档完善；但功能较少，某些 peer/末尾块场景可能较慢。
+> - **aria2** 最适合直链（HTTP）下载；BT 场景缺少 rename/move API，且完成后即停止做种。
 
 ## 通知
 
@@ -146,7 +180,7 @@ curl -X POST http://localhost:7893/api/notify/test
 ```
 
 - **`logic::reduce` 纯函数** — 无 I/O、无副作用，可完整测试
-- **4 个线程**：定时器、HTTP 服务、执行器、逻辑处理
+- **多线程设计**：定时器、逻辑、执行器、下载器（DlThread）各有独立线程；HTTP 请求运行在 rouille 线程池上（默认 16）
 - **原子写入** — `state.tmp` + `rename` 方式，防止损坏
 
 ## 前端

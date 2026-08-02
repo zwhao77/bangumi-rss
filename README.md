@@ -11,17 +11,43 @@ Single Rust binary, ~5 MB memory footprint.
 git clone https://github.com/zwhao77/bangumi-rss.git
 cd bangumi-rss
 
-# 2. Start aria2 with JSON-RPC enabled
-aria2c --enable-rpc --rpc-listen-all --rpc-allow-origin-all &
-
-# 3. Build (res/index.html and res/style.css are embedded at compile time)
+# 2. Build (res/index.html and res/style.css are embedded at compile time)
 cargo build --release
+```
 
-# 4. Run (downloads go to /downloads, media to /anime)
+### 3. Start one download backend (see [Downloader Selection](#downloader-selection))
+
+```bash
+# Transmission — recommended for BitTorrent
+transmission-daemon --rpc-port 9091 &
+
+# qBittorrent — headless, Web UI on :8080. NOTE: on first start, 5.2+
+# generates a TEMPORARY password instead of a default one; read it from the
+# startup log, log in via the Web UI to set your own, then use it below.
+qbittorrent-nox --webui-port=8080 --confirm-legal-notice &
+
+# aria2 — lightweight, no daemon
+aria2c --enable-rpc --rpc-listen-all --rpc-allow-origin-all &
+```
+
+### 4. Run, matching your backend
+
+```bash
+# Transmission
+DOWNLOADER=transmission \
+TRANSMISSION_RPC_URL=http://localhost:9091/transmission/rpc \
+DOWNLOAD_DIR=/downloads LIBRARY_DIR=/anime ./target/release/bangumi-rss
+
+# qBittorrent (use the password you set, or the temporary one from the log)
+DOWNLOADER=qbittorrent \
+QBITTORRENT_URL=http://localhost:8080 \
+QBITTORRENT_USER=admin QBITTORRENT_PASS=YOUR_PASSWORD \
+DOWNLOAD_DIR=/downloads LIBRARY_DIR=/anime ./target/release/bangumi-rss
+
+# aria2
+DOWNLOADER=aria2 \
 ARIA2_RPC_URL=http://localhost:6800/jsonrpc \
-DOWNLOAD_DIR=/downloads \
-LIBRARY_DIR=/anime \
-./target/release/bangumi-rss
+DOWNLOAD_DIR=/downloads LIBRARY_DIR=/anime ./target/release/bangumi-rss
 ```
 
 Open `http://localhost:7893` in browser to subscribe and manage.
@@ -46,13 +72,14 @@ Open `http://localhost:7893` in browser to subscribe and manage.
 | `RSS_INTERVAL` | `900` | RSS poll interval (seconds) |
 | `POLL_INTERVAL` | `30` | Download status poll interval (seconds) |
 | `ARIA2_RPC_URL` | `http://localhost:6800/jsonrpc` | Aria2 JSON-RPC endpoint |
+| `ARIA2_RPC_TOKEN` | — | Aria2 RPC secret (`--rpc-secret`) |
 | `DOWNLOAD_DIR` | `/downloads` | Torrent staging directory |
 | `LIBRARY_DIR` | `/anime` | Media library output directory |
 | `DOWNLOADER` | `aria2` | `aria2`, `qbittorrent`, or `transmission` |
 | `MOCK_DOWNLOADER` | `false` | Enable in-memory mock downloader (testing) |
 | `QBITTORRENT_URL` | `http://localhost:8080` | qBittorrent Web UI base URL |
 | `QBITTORRENT_USER` | `admin` | qBittorrent username |
-| `QBITTORRENT_PASS` | `adminadmin` | qBittorrent password |
+| `QBITTORRENT_PASS` | `adminadmin` | qBittorrent password (5.2+ first start uses a temporary password — set your own) |
 | `TRANSMISSION_RPC_URL` | `http://localhost:9091/transmission/rpc` | Transmission RPC endpoint |
 | `TRANSMISSION_USER` | — | Transmission HTTP Basic Auth username |
 | `TRANSMISSION_PASS` | — | Transmission HTTP Basic Auth password |
@@ -60,6 +87,8 @@ Open `http://localhost:7893` in browser to subscribe and manage.
 | `TORRENT_CONCURRENCY` | `4` | Worker pool threads (RSS + torrent downloads) |
 | `QUEUE_CAPACITY` | `512` | Worker pool job queue capacity |
 | `BIND_ADDR` | `127.0.0.1` | HTTP server bind address (`0.0.0.0` for all interfaces) |
+| `MAX_CONNECTIONS` | `16` | Rouille thread-pool connection count |
+| `MAX_QUEUE` | `0` | HTTP connection queue limit |
 | `AUTH_USERNAME` | — | Basic Auth username (empty = no auth) |
 | `AUTH_PASSWORD` | — | Basic Auth password |
 | `RUST_LOG` | `info` | Log level (`warn` to quieten, `debug` for verbose) |
@@ -70,11 +99,14 @@ Open `http://localhost:7893` in browser to subscribe and manage.
 
 ## Downloader Selection
 
-| Downloader | rename_file | move_files | Seeding Retention | Recommended For |
+| Downloader | rename_file | move_files | Seeding Retention | Notes |
 |---|---|---|---|---|
-| **Transmission** (4.1.0+) | ✅ `torrent_rename_path` | ✅ `torrent_set_location` | ✅ | Router / NAS, default recommendation |
-| **qBittorrent** | ✅ `torrents/renameFile` | ✅ `torrents/setLocation` | ✅ | x86 soft-router / NAS (≥512MB RAM) |
+| **Transmission** (4.1.0+) | ✅ `torrent_rename_path` | ✅ `torrent_set_location` | ✅ | Lightweight, simple, well-documented JSON-RPC 2.0, official OpenWrt package |
+| **qBittorrent** (5.0+) | ✅ `torrents/renameFile` | ✅ `torrents/setLocation` | ✅ | Feature-rich; peer/connection optimizations (incl. end-game) usually faster on modern networks |
 | **aria2** | ❌ no BT multi-file rename | ❌ no built-in move API | ❌ stops immediately after completion | Lightweight direct downloads, or fallback |
+
+> **API-based support**: bangumi-rss drives each downloader through its HTTP API behind a single trait — any client with a compatible API works (e.g. qBittorrent Enhanced Edition uses the same `/api/v2/*` as upstream). There is no standard cross-client downloader protocol; every client exposes its own API.
+> **Auth note**: qBittorrent requires ≥ 5.0 — 5.0+ authenticates with username/password (HTTP Basic); 4.x uses cookie (SID) login, which is not supported. ≥ 5.2 also supports an API key (Bearer).
 
 ### aria2 BitTorrent Limitations
 
@@ -84,7 +116,10 @@ aria2 has the following known limitations with BitTorrent torrents:
 2. **No downloader-aware move**: aria2 has no equivalent of `torrent_set_location` or `setLocation`. After moving files, the downloader is unaware of the new location.
 3. **Seeding interrupted**: Due to the above limitations, aria2 torrents are stopped and removed from the list after completion, then moved via the filesystem. This **violates BT sharing etiquette** — if you want to keep seeding, use Transmission or qBittorrent.
 
-> **Recommendation**: If your downloads are primarily BitTorrent, prefer **Transmission**. Its JSON-RPC 2.0 interface is well-documented, memory usage is low (15-25MB idle), it has an official OpenWrt package, and supports `rename_path` + `set_location` to avoid interrupting seeding.
+> **Which to choose?** bangumi-rss doesn't push a single downloader — pick what fits your environment:
+> - **qBittorrent** is often the better default on modern networks: feature-rich, and its peer/connection handling (including end-game last-piece optimization) tends to be faster. The cost is higher memory usage.
+> - **Transmission** suits low-memory devices (routers / NAS): simple and well-documented. It's less feature-rich and may be slower in some peer/end-game scenarios.
+> - **aria2** is best for direct (HTTP) downloads; for BitTorrent it lacks rename/move APIs and stops seeding after completion.
 
 ## Notifications
 
@@ -146,7 +181,7 @@ Event Sources (timers, HTTP)
 ```
 
 - **`logic::reduce` is pure** — no I/O, no side effects, fully testable.
-- **4 threads**: timers, HTTP server, executor, logic.
+- **Threaded design**: dedicated threads for timers, logic, executor, and the downloader (DlThread); HTTP requests run on a rouille thread pool (default 16).
 - **State persisted atomically** via `state.tmp` + `rename`. Synchronous write on each state change (~50 KB → < 100 µs).
 
 ## Frontend

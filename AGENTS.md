@@ -58,14 +58,14 @@ Event Sources (timers, server)
 - **`logic::reduce` is pure** — no I/O, no side effects. Testable.
 - State uses **copy-on-write** builder pattern: `state.with_*()`, etc.
 - State persists to `{DATA_DIR}/state.json` only when changed.
-- 5 threads: timers (combined), HTTP server, executor, logic, downloader (DlThread).
+- Threaded: timers (combined), executor, logic, downloader (DlThread) run on dedicated threads; the HTTP server uses a rouille thread pool (default 16, via `MAX_CONNECTIONS`).
 
 ## Key Modules
 
 | File | Purpose |
 |---|---|
 | `main.rs` | Thin entry: env logger + `Config::init_from_env()` → `app::run()` |
-| `app.rs` | Bootstrap: DI wiring (mock vs real), 5 threads startup, timer registration |
+| `app.rs` | Bootstrap: DI wiring (mock vs real), dedicated-thread startup, timer registration |
 | `config.rs` | Env config via `envconfig` (6 tests) |
 | `lib.rs` | Library crate root — single module declaration for all binaries |
 | `core/event.rs` | `Event` enum (15 variants) + `run_logic()` loop |
