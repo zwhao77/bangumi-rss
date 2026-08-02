@@ -49,6 +49,20 @@ pub(crate) enum DlCommand {
     },
 }
 
+/// Result of submitting a command to the downloader thread.
+///
+/// Deliberately does NOT carry the rejected command back: `DlCommand` is large
+/// (up to ~136 bytes from `HandleCompleted`), and every dropped command has a
+/// business-level retry path (next RSS poll / next poll tick), so a rejected
+/// command is never re-sent. See `dispatch_dl` in the executor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DlSendError {
+    /// Queue full — command dropped; a later RSS/poll tick retries naturally.
+    Full,
+    /// Downloader thread has died.
+    Disconnected,
+}
+
 // ── Public thread handle ──
 
 /// A dedicated single-worker thread for downloader RPCs.
@@ -79,7 +93,7 @@ impl DlThread {
         uri: String,
         dir: String,
         feed_id: Uuid,
-    ) -> Result<(), TrySendError<DlCommand>> {
+    ) -> Result<(), DlSendError> {
         self._send(DlCommand::AddUri { uri, dir, feed_id })
     }
 
@@ -90,7 +104,7 @@ impl DlThread {
         data: Vec<u8>,
         dir: String,
         feed_id: Uuid,
-    ) -> Result<(), TrySendError<DlCommand>> {
+    ) -> Result<(), DlSendError> {
         self._send(DlCommand::AddBytes {
             uri,
             data,
@@ -100,17 +114,17 @@ impl DlThread {
     }
 
     /// Submit a completed-task poll.
-    pub(crate) fn send_poll_completed(&self) -> Result<(), TrySendError<DlCommand>> {
+    pub(crate) fn send_poll_completed(&self) -> Result<(), DlSendError> {
         self._send(DlCommand::PollCompleted)
     }
 
     /// Submit a failed-task poll.
-    pub(crate) fn send_poll_failed(&self) -> Result<(), TrySendError<DlCommand>> {
+    pub(crate) fn send_poll_failed(&self) -> Result<(), DlSendError> {
         self._send(DlCommand::PollFailed)
     }
 
     /// Submit a full snapshot query.
-    pub(crate) fn send_query_all(&self) -> Result<(), TrySendError<DlCommand>> {
+    pub(crate) fn send_query_all(&self) -> Result<(), DlSendError> {
         self._send(DlCommand::QueryAll)
     }
 
@@ -118,7 +132,7 @@ impl DlThread {
     pub(crate) fn send_check_connection(
         &self,
         reply_tx: Sender<ApiResult<()>>,
-    ) -> Result<(), TrySendError<DlCommand>> {
+    ) -> Result<(), DlSendError> {
         self._send(DlCommand::CheckConnection { reply_tx })
     }
 
@@ -131,7 +145,7 @@ impl DlThread {
         library_dir: String,
         download_dir: String,
         expected_episode: u32,
-    ) -> Result<(), TrySendError<DlCommand>> {
+    ) -> Result<(), DlSendError> {
         self._send(DlCommand::HandleCompleted {
             infohash,
             feed_id,
@@ -144,8 +158,12 @@ impl DlThread {
 
     // ── internal ──
 
-    fn _send(&self, cmd: DlCommand) -> Result<(), TrySendError<DlCommand>> {
-        self.tx.try_send(cmd)
+    fn _send(&self, cmd: DlCommand) -> Result<(), DlSendError> {
+        match self.tx.try_send(cmd) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) => Err(DlSendError::Full),
+            Err(TrySendError::Disconnected(_)) => Err(DlSendError::Disconnected),
+        }
     }
 }
 

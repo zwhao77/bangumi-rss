@@ -151,11 +151,10 @@ fn main() {
     if !skip_add {
         println!("─── add torrent ───");
         let uri = custom_uri.as_ref().unwrap();
-        let infohash: String;
-        match dl.add_uri(uri, &download_dir) {
+        let infohash = match dl.add_uri(uri, &download_dir) {
             Ok(h) => {
                 check("add_uri", &h);
-                infohash = h;
+                h
             }
             Err(e) => {
                 fail("add_uri", &e);
@@ -163,7 +162,7 @@ fn main() {
                 report(passed, failed);
                 return;
             }
-        }
+        };
 
         std::thread::sleep(std::time::Duration::from_secs(2));
 

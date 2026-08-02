@@ -5,12 +5,12 @@
 
 use std::sync::Arc;
 
-use crossbeam_channel::{Receiver, Sender, TrySendError};
+use crossbeam_channel::{Receiver, Sender};
 use uuid::Uuid;
 
 use crate::core::effect::Effect;
 use crate::core::event::Event;
-use crate::services::dl_command::{DlCommand, DlThread};
+use crate::services::dl_command::{DlSendError, DlThread};
 use crate::services::fetch_pool::{FetchJob, FetchPool};
 use crate::traits::FileOps;
 use crate::utils::handler::ResolvedFile;
@@ -28,12 +28,12 @@ pub struct EffectExecutor {
     pub worker_pool: FetchPool,
     pub event_tx: Sender<Event>,
     /// For self-call patterns: spawned threads feed effects back to this executor.
-    pub effect_tx: Sender<Effect>,
+    pub(crate) effect_tx: Sender<Effect>,
 }
 
 impl EffectExecutor {
     /// Block on `rx`, execute each effect, push follow-up effects to `tx`.
-    pub fn run(&self, rx: Receiver<Effect>, tx: Sender<Effect>) {
+    pub(crate) fn run(&self, rx: Receiver<Effect>, tx: Sender<Effect>) {
         log::info!("started");
         for effect in rx {
             let follow_ups = self.execute(effect);
@@ -49,13 +49,13 @@ impl EffectExecutor {
     ///   poll / RSS tick retries naturally.
     /// - `Disconnected` → downloader thread died; logged. (Restart / backoff is
     ///   future work.)
-    fn dispatch_dl(&self, r: Result<(), TrySendError<DlCommand>>) {
+    fn dispatch_dl(&self, r: Result<(), DlSendError>) {
         match r {
             Ok(()) => {}
-            Err(e) if e.is_full() => {
+            Err(DlSendError::Full) => {
                 log::warn!("[executor] downloader queue full, command dropped");
             }
-            Err(_) => {
+            Err(DlSendError::Disconnected) => {
                 log::error!("[executor] downloader thread disconnected");
             }
         }
@@ -239,11 +239,11 @@ impl EffectExecutor {
                 }
             };
 
-            if let Some(parent) = r.to.parent() {
-                if let Err(e) = self.fs.ensure_dir(parent) {
-                    log::warn!("fallback: ensure_dir({parent:?}) failed: {e}");
-                    continue;
-                }
+            if let Some(parent) = r.to.parent()
+                && let Err(e) = self.fs.ensure_dir(parent)
+            {
+                log::warn!("fallback: ensure_dir({parent:?}) failed: {e}");
+                continue;
             }
             if let Err(e) = self.fs.move_file(&src, &r.to) {
                 log::warn!("fallback: move({src:?} → {:?}) failed: {e}", r.to);

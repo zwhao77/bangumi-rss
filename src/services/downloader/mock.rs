@@ -16,6 +16,7 @@ use crate::types::{CompletedDownload, DownloadSnapshot, DownloadState, TorrentFi
 /// - `add_uri`: generates a fake infohash, stores the task.
 /// - `poll_completed`: returns tasks not yet completed, marks them done.
 /// - `query_all`: returns all tasks with random progress/states (seeded by infohash).
+#[derive(Default)]
 pub struct MockDownloader {
     pub(crate) tasks: Mutex<Vec<MockTask>>,
     pub(crate) counter: Mutex<u32>,
@@ -215,6 +216,12 @@ mod mock_fs {
         /// In-memory file store: path → binary content.
         /// Pre-seeded with a default state.json; unknown files return dummy data.
         files: std::sync::Mutex<HashMap<PathBuf, Vec<u8>>>,
+    }
+
+    impl Default for MockFileSystem {
+        fn default() -> Self {
+            Self::new()
+        }
     }
 
     impl MockFileSystem {

@@ -117,7 +117,7 @@ pub enum DownloadStatus {
 
 /// Logic thread entry-point: owns AppState, runs the pure reducer loop.
 /// State persistence happens here (only place with &AppState).
-pub fn run_logic(
+pub(crate) fn run_logic(
     event_rx: Receiver<Event>,
     effect_tx: Sender<Effect>,
     mut state: AppState,

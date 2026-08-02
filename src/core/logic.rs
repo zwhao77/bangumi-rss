@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 /// Dispatch an event against the current (read-only) state,
 /// producing a new state snapshot and effects to execute.
-pub fn reduce(state: &AppState, event: Event) -> (AppState, Vec<Effect>) {
+pub(crate) fn reduce(state: &AppState, event: Event) -> (AppState, Vec<Effect>) {
     match event {
         Event::RssTickAll => (state.clone(), reduce_rss_tick_all(state)),
         Event::RssItemsFetched {

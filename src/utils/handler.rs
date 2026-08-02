@@ -19,8 +19,6 @@ pub(crate) struct ResolvedFile {
     pub key: EpisodeKey,
     /// Normalised output name, e.g. "番剧名 S01E01.mp4".
     pub target_name: String,
-    /// Absolute source path (in download staging).
-    pub from: PathBuf,
     /// Absolute destination path (in media library).
     pub to: PathBuf,
     /// Current actual file path — updated as ops proceed.
@@ -109,7 +107,6 @@ pub(crate) fn resolve_files(
                 key: actual_key,
                 target_name,
                 actual: from.clone(),
-                from,
                 to,
             })
         })
@@ -178,7 +175,7 @@ mod tests {
         assert_eq!(resolved[0].key.episode, 1);
         assert_eq!(resolved[0].target_name, "虚构动画 S02E01.mp4");
         assert_eq!(resolved[1].key.episode, 2);
-        assert!(resolved[0].from.to_str().unwrap().contains("/downloads/"));
+        assert!(resolved[0].actual.to_str().unwrap().contains("/downloads/"));
         assert!(
             resolved[0]
                 .to

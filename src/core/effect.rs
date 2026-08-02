@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::types::{AnimeIdentity, ApiResult, Notification, RssItem};
 
 /// An effect to be executed by the service layer.
-pub enum Effect {
+pub(crate) enum Effect {
     /// Fetch and parse an RSS feed, then emit `AddTorrent` for each item.
     FetchRss {
         url: String,
