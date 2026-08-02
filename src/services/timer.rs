@@ -19,6 +19,7 @@ struct Entry {
 }
 
 /// Holds a set of periodic timers, all driven by a single thread.
+#[derive(Default)]
 pub struct TimerManager {
     entries: Vec<Entry>,
     shutdown: Arc<AtomicBool>,

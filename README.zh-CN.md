@@ -44,14 +44,18 @@ LIBRARY_DIR=/anime \
 | `NO_SERVER` | `false` | 禁用 HTTP 服务器 |
 | `DATA_DIR` | `.` | 状态文件目录 (`state.json`) |
 | `RSS_INTERVAL` | `900` | RSS 轮询间隔（秒） |
+| `POLL_INTERVAL` | `30` | 下载状态轮询间隔（秒） |
 | `ARIA2_RPC_URL` | `http://localhost:6800/jsonrpc` | Aria2 JSON-RPC 端点 |
 | `DOWNLOAD_DIR` | `/downloads` | 种子暂存目录 |
 | `LIBRARY_DIR` | `/anime` | 媒体库输出目录 |
-| `DOWNLOADER` | `aria2` | `aria2` 或 `qbittorrent` |
+| `DOWNLOADER` | `aria2` | `aria2`、`qbittorrent` 或 `transmission` |
 | `MOCK_DOWNLOADER` | `false` | 启用内存模拟下载器（测试用） |
 | `QBITTORRENT_URL` | `http://localhost:8080` | qBittorrent Web UI 地址 |
 | `QBITTORRENT_USER` | `admin` | qBittorrent 用户名 |
 | `QBITTORRENT_PASS` | `adminadmin` | qBittorrent 密码 |
+| `TRANSMISSION_RPC_URL` | `http://localhost:9091/transmission/rpc` | Transmission RPC 端点 |
+| `TRANSMISSION_USER` | (空) | Transmission HTTP Basic Auth 用户名 |
+| `TRANSMISSION_PASS` | (空) | Transmission HTTP Basic Auth 密码 |
 | `BANGUMI_API_BASE` | `https://api.bgm.tv` | Bangumi API 基础 URL |
 | `TORRENT_CONCURRENCY` | `4` | Worker pool 线程数（RSS + 种子下载） |
 | `QUEUE_CAPACITY` | `512` | Worker pool 队列容量 |
@@ -63,6 +67,24 @@ LIBRARY_DIR=/anime \
 | `WEBHOOK_FORMAT` | — | 预设格式：`bark`、`gotify` 或 `serverchan` |
 | `WEBHOOK_TEMPLATE` | — | 自定义 JSON/Form 模板（覆盖预设） |
 | `WEBHOOK_ERROR_TEMPLATE` | — | 自定义错误模板（覆盖默认错误格式） |
+
+## 下载器选择
+
+| 下载器 | rename_file | move_files | 做种保留 | 推荐场景 |
+|---|---|---|---|---|
+| **Transmission** (4.1.0+) | ✅ `torrent_rename_path` | ✅ `torrent_set_location` | ✅ | 路由器 / NAS，默认推荐 |
+| **qBittorrent** | ✅ `torrents/renameFile` | ✅ `torrents/setLocation` | ✅ | x86 软路由 / NAS（≥512MB RAM） |
+| **aria2** | ❌ 不支持 BT 多文件重命名 | ❌ 无内置 move API | ❌ 下载完成后立即停止 | 轻量直链下载，或作为后备方案 |
+
+### aria2 的 BitTorrent 限制
+
+aria2 对于 BitTorrent 种子存在以下已知限制：
+
+1. **不支持 torrent 内文件重命名**：`changeOption("out")` 仅对单文件 HTTP 下载有效，对 BT 多文件种子无效。bangumi-rss 在检测到 aria2 时会 fallback 到文件系统操作（使用 `fs.move_file`）。
+2. **不支持下载器感知的移动**：aria2 没有类似 `torrent_set_location` 或 `setLocation` 的 API，移文件后下载器不知道新位置。
+3. **做种中断**：由于以上限制，aria2 在下载完成后会被停止并从列表中移除，再做文件系统搬移。这种行为**违背 BT 共享精神**——如果你希望持续做种，请使用 Transmission 或 qBittorrent。
+
+> **建议**：如果下载内容主要是 BT 种子，优先选择 **Transmission**。它的 JSON-RPC 2.0 接口完善、内存占用低（空闲 15-25MB）、在 OpenWrt 上有官方包，且支持 `rename_path` + `set_location` 避免做种中断。
 
 ## 通知
 

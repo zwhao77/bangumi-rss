@@ -2,16 +2,46 @@
 //!
 //! These are pure data, serializable, with no dependency on I/O or services.
 
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 // ── API & Service-boundary types ──
 
-/// General-purpose API response.
-#[derive(Debug, serde::Serialize)]
-pub struct ApiResponse {
-    pub success: bool,
-    pub message: String,
+/// 泛型 API 结果。序列化为:
+///   OK → {"success":true, "data":T, "message":"..."}
+///   Err → {"success":false, "code":u16, "message":"..."}
+pub enum ApiResult<T> {
+    OK { value: T },
+    Err { code: u16, message: String },
+}
+
+/// HTTP status codes used in `ApiResult::Err.code` and `ApiError`.
+pub mod http_code {
+    pub const BAD_REQUEST: u16 = 400;
+    pub const NOT_FOUND: u16 = 404;
+    pub const INTERNAL: u16 = 500;
+    pub const SERVICE_UNAVAILABLE: u16 = 503;
+}
+
+impl<T: Serialize> Serialize for ApiResult<T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            ApiResult::OK { value } => {
+                let mut s = serializer.serialize_struct("ApiResult", 2)?;
+                s.serialize_field("success", &true)?;
+                s.serialize_field("data", value)?;
+                s.end()
+            }
+            ApiResult::Err { code, message } => {
+                let mut s = serializer.serialize_struct("ApiResult", 3)?;
+                s.serialize_field("success", &false)?;
+                s.serialize_field("code", code)?;
+                s.serialize_field("message", message)?;
+                s.end()
+            }
+        }
+    }
 }
 
 /// Feed list API DTO (returned to the web UI).
@@ -38,6 +68,10 @@ pub struct RssItem {
 /// A file inside a completed torrent download.
 #[derive(Debug, Clone)]
 pub struct TorrentFile {
+    /// Torrent-relative path, e.g. "Season 1/Episode 01.mkv".
+    /// For single-file torrents this is just the filename.
+    pub path: String,
+    /// File name extracted from `path` (the last component).
     pub name: String,
 }
 
@@ -97,6 +131,8 @@ pub enum RecordStatus {
     Resolved,
     /// File moved into the media library.
     InLibrary,
+    /// HandleCompleted processing failed — file not moved to library.
+    Failed,
 }
 
 /// Feed preview — returned to the web UI before user confirms subscription.
@@ -133,9 +169,9 @@ impl Default for FeedPreview {
 pub struct BangumiInfo {
     /// Bangumi subject ID.
     pub bangumi_id: u32,
-    /// Official Chinese name (e.g. "葬送的芙莉莲").
+    /// Official Chinese name (e.g. "虚构动画").
     pub name_cn: String,
-    /// Original name (e.g. "葬送のフリーレン").
+    /// Original name (e.g. "非現実アニメ").
     pub name: String,
     /// Synopsis (truncated to ~200 chars).
     pub summary: String,
@@ -173,6 +209,7 @@ pub enum DownloadState {
     Checking,
     Completed,
     Failed,
+    Removed,
 }
 
 // ── Download list API types ──
@@ -232,4 +269,46 @@ pub struct FailedData {
 pub enum Notification {
     EpisodeDownloaded(EpisodeDownloadedData),
     Failed(FailedData),
+}
+
+// ── Streamable file abstraction ──
+
+use std::io::{Read, Seek};
+
+/// Combined trait: anything that can be read and seeked.
+/// Required because Rust doesn't allow `Box<dyn Read + Seek + Send>` directly.
+pub trait ReadSeek: Read + Seek {}
+impl<T: Read + Seek> ReadSeek for T {}
+
+/// A streamable file with known size, abstracted over real files and in-memory data.
+/// Enables mock file systems to produce streams without temp files.
+pub struct FileStream {
+    inner: Box<dyn ReadSeek + Send>,
+    size: u64,
+}
+
+impl FileStream {
+    /// Create a FileStream from anything that can be read, seeked, and sent across threads.
+    /// - Production: `FileStream::new(File::open(path)?, file.metadata()?.len())`
+    /// - Mock: `FileStream::new(Cursor::new(data), data.len() as u64)`
+    pub fn new(inner: impl Read + Seek + Send + 'static, size: u64) -> Self {
+        Self {
+            inner: Box::new(inner),
+            size,
+        }
+    }
+
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// Seek to a position and return a length-limited reader.
+    pub fn into_range(
+        mut self,
+        start: u64,
+        length: u64,
+    ) -> std::io::Result<impl Read + Send + 'static> {
+        self.inner.seek(std::io::SeekFrom::Start(start))?;
+        Ok(self.inner.take(length))
+    }
 }

@@ -6,10 +6,10 @@
 use std::fmt;
 use uuid::Uuid;
 
-use crate::types::{AnimeIdentity, Notification, RssItem};
+use crate::types::{AnimeIdentity, ApiResult, Notification, RssItem};
 
 /// An effect to be executed by the service layer.
-pub enum Effect {
+pub(crate) enum Effect {
     /// Fetch and parse an RSS feed, then emit `AddTorrent` for each item.
     FetchRss {
         url: String,
@@ -55,6 +55,18 @@ pub enum Effect {
     /// Poll the downloader for recently failed tasks.
     PollFailed,
 
+    /// Downloader ops (pause→move→rename) failed — executor does filesystem fallback.
+    FilesystemFallback {
+        infohash: String,
+        resolved: Vec<crate::utils::handler::ResolvedFile>,
+        season_dir: String,
+    },
+
+    /// Health check — probe the downloader and reply via channel.
+    CheckDownloader {
+        reply_tx: crossbeam_channel::Sender<ApiResult<()>>,
+    },
+
     /// Worker pool fetched and parsed RSS items.
     RssFetchComplete {
         feed_id: Uuid,
@@ -63,10 +75,7 @@ pub enum Effect {
     },
 
     /// Worker pool failed to fetch/parse RSS.
-    RssFetchFailed {
-        feed_id: Uuid,
-        error: String,
-    },
+    RssFetchFailed { feed_id: Uuid, error: String },
 }
 
 impl fmt::Debug for Effect {
@@ -127,6 +136,17 @@ impl fmt::Debug for Effect {
             Self::QueryAllDownloads => f.debug_struct("QueryAllDownloads").finish(),
             Self::PollCompleted => f.debug_struct("PollCompleted").finish(),
             Self::PollFailed => f.debug_struct("PollFailed").finish(),
+            Self::FilesystemFallback {
+                infohash,
+                resolved,
+                season_dir,
+            } => f
+                .debug_struct("FilesystemFallback")
+                .field("infohash", infohash)
+                .field("num_resolved", &resolved.len())
+                .field("season_dir", season_dir)
+                .finish(),
+            Self::CheckDownloader { reply_tx: _ } => f.debug_struct("CheckDownloader").finish(),
             Self::RssFetchComplete {
                 feed_id,
                 items,

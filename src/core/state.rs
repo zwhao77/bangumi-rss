@@ -106,10 +106,30 @@ impl AppState {
         self
     }
 
+    /// Mark a download as failed to process — files not moved to library.
+    pub fn with_download_failed(mut self, infohash: &str) -> Self {
+        if let Some(r) = self.tracker.get_mut(infohash) {
+            r.status = RecordStatus::Failed;
+        }
+        self
+    }
+
     /// Remove a feed and all related tracker entries.
     pub fn with_feed_removed(mut self, id: Uuid) -> Self {
         self.feeds.remove(&id);
         self.tracker.retain(|_, r| r.feed_id != id);
+        self
+    }
+
+    /// Remove a tracker entry by infohash.
+    pub fn with_tracker_removed(mut self, infohash: &str) -> Self {
+        self.tracker.remove(infohash);
+        self
+    }
+
+    /// Remove a URL from the seen set (allows re-download on next RSS poll).
+    pub fn with_seen_url_removed(mut self, url: &str) -> Self {
+        self.seen_urls.remove(url);
         self
     }
 

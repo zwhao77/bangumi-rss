@@ -6,15 +6,18 @@
 use crate::core::effect::Effect;
 use crate::core::event::{DownloadStatus, Event};
 use crate::core::state::{AppState, Feed};
+use std::collections::HashSet;
+
 use crate::types::{
-    AnimeIdentity, ApiResponse, BangumiInfo, DownloadInfo, DownloadSnapshot, EpisodeDownloadedData,
+    AnimeIdentity, ApiResult, BangumiInfo, DownloadInfo, DownloadSnapshot, EpisodeDownloadedData,
     EpisodeKey, EpisodeRecord, FailedData, FeedInfo, Notification, RecordStatus, RssItem,
+    http_code,
 };
 use uuid::Uuid;
 
 /// Dispatch an event against the current (read-only) state,
 /// producing a new state snapshot and effects to execute.
-pub fn reduce(state: &AppState, event: Event) -> (AppState, Vec<Effect>) {
+pub(crate) fn reduce(state: &AppState, event: Event) -> (AppState, Vec<Effect>) {
     match event {
         Event::RssTickAll => (state.clone(), reduce_rss_tick_all(state)),
         Event::RssItemsFetched {
@@ -31,11 +34,12 @@ pub fn reduce(state: &AppState, event: Event) -> (AppState, Vec<Effect>) {
         Event::DownloaderNotification { infohash, status } => {
             reduce_downloader_notification(state, infohash, status)
         }
-        Event::EpisodeCompleted {
+        Event::EpisodeMovedToLibrary {
             infohash,
             episode,
             library_path,
         } => reduce_episode_completed(state, &infohash, episode, library_path),
+        Event::EpisodeHandleFailed { infohash } => reduce_episode_handle_failed(state, &infohash),
         Event::UserConfirm {
             feed_id,
             name,
@@ -59,6 +63,10 @@ pub fn reduce(state: &AppState, event: Event) -> (AppState, Vec<Effect>) {
         Event::DownloadsRefreshed { snapshots } => reduce_downloads_refreshed(state, snapshots),
         Event::RssFetchFailed { feed_id, error } => reduce_rss_fetch_failed(state, feed_id, error),
         Event::NotifyTest => reduce_notify_test(state),
+        Event::ApiGetEpisode { infohash, reply_tx } => {
+            reduce_api_get_episode(state, infohash, reply_tx)
+        }
+        Event::CheckDownloader { reply_tx } => reduce_check_downloader(state, reply_tx),
     }
 }
 
@@ -132,7 +140,11 @@ fn reduce_rss_items_fetched(
 
 /// Periodic download poll → emit poll effects.
 fn reduce_poll_downloader() -> Vec<Effect> {
-    vec![Effect::PollCompleted, Effect::PollFailed]
+    vec![
+        Effect::PollCompleted,
+        Effect::PollFailed,
+        Effect::QueryAllDownloads,
+    ]
 }
 
 fn reduce_download_started(
@@ -187,6 +199,16 @@ fn reduce_downloader_notification(
                 }
             };
 
+            // Skip if already handled — prevents loops when downloader
+            // re-detects paused/seeding torrents (Transmission/qBittorrent).
+            if record.status == RecordStatus::InLibrary || record.status == RecordStatus::Failed {
+                log::debug!(
+                    "download already in library, skipping: {}",
+                    &infohash[..infohash.len().min(16)]
+                );
+                return (state.clone(), vec![]);
+            }
+
             let effects = vec![Effect::HandleCompleted {
                 infohash,
                 feed_id: record.feed_id,
@@ -199,12 +221,25 @@ fn reduce_downloader_notification(
             (state.clone(), effects)
         }
         DownloadStatus::Failed => {
-            log::warn!("download failed: {infohash}");
             let title = state
                 .tracker
                 .get(&infohash)
-                .map(|r| r.key.anime.name.clone())
-                .unwrap_or_else(|| format!("unknown ({})", &infohash[..infohash.len().min(16)]));
+                .map(|r| {
+                    let name = &r.key.anime.name;
+                    log::warn!(
+                        "download failed: {} (infohash={})",
+                        name,
+                        &infohash[..infohash.len().min(16)]
+                    );
+                    name.clone()
+                })
+                .unwrap_or_else(|| {
+                    log::warn!(
+                        "download failed: unknown (infohash={})",
+                        &infohash[..infohash.len().min(16)]
+                    );
+                    format!("unknown ({})", &infohash[..infohash.len().min(16)])
+                });
             let effects = vec![Effect::Notify(Notification::Failed(FailedData {
                 title,
                 message: "下载失败: 种子已失效或下载器不可用".to_string(),
@@ -226,7 +261,7 @@ fn reduce_episode_completed(
     let record = match state.tracker.get(infohash) {
         Some(r) => r,
         None => {
-            log::warn!("EpisodeCompleted for unknown infohash: {infohash}");
+            log::warn!("EpisodeMovedToLibrary for unknown infohash: {infohash}");
             return (state.clone(), vec![]);
         }
     };
@@ -272,6 +307,18 @@ fn reduce_episode_completed(
     (new_state, effects)
 }
 
+/// Executor failed to move files to library — mark as Failed.
+fn reduce_episode_handle_failed(state: &AppState, infohash: &str) -> (AppState, Vec<Effect>) {
+    if !state.tracker.contains_key(infohash) {
+        log::warn!("EpisodeHandleFailed for unknown infohash: {infohash}");
+        return (state.clone(), vec![]);
+    }
+
+    log::warn!("episode handle failed, marking as Failed: {infohash}");
+    let new_state = state.clone().with_download_failed(infohash);
+    (new_state, vec![])
+}
+
 /// User confirmed the anime name + season via the web UI.
 fn reduce_user_confirm(
     state: &AppState,
@@ -279,20 +326,22 @@ fn reduce_user_confirm(
     name: String,
     season: u8,
     bangumi_info: Option<BangumiInfo>,
-    reply_tx: crossbeam_channel::Sender<ApiResponse>,
+    reply_tx: crossbeam_channel::Sender<ApiResult<String>>,
 ) -> (AppState, Vec<Effect>) {
     let exists = state.feeds.contains_key(&feed_id);
     let new_state = state
         .clone()
         .with_feed_confirmed(feed_id, name, season, bangumi_info);
-    let _ = reply_tx.send(ApiResponse {
-        success: exists,
-        message: if exists {
-            "updated".into()
-        } else {
-            format!("feed {feed_id} not found")
-        },
-    });
+    if exists {
+        let _ = reply_tx.send(ApiResult::OK {
+            value: "updated".into(),
+        });
+    } else {
+        let _ = reply_tx.send(ApiResult::Err {
+            code: http_code::NOT_FOUND,
+            message: format!("feed {feed_id} not found"),
+        });
+    }
     (new_state, vec![])
 }
 
@@ -304,11 +353,11 @@ fn reduce_confirm_feed(
     name: String,
     season: u8,
     bangumi_info: Option<BangumiInfo>,
-    reply_tx: crossbeam_channel::Sender<ApiResponse>,
+    reply_tx: crossbeam_channel::Sender<ApiResult<String>>,
 ) -> (AppState, Vec<Effect>) {
     if name.trim().is_empty() {
-        let _ = reply_tx.send(ApiResponse {
-            success: false,
+        let _ = reply_tx.send(ApiResult::Err {
+            code: http_code::BAD_REQUEST,
             message: "name cannot be empty".into(),
         });
         return (state.clone(), vec![]);
@@ -322,9 +371,8 @@ fn reduce_confirm_feed(
         bangumi_info,
     };
 
-    let _ = reply_tx.send(ApiResponse {
-        success: true,
-        message: feed_id.to_string(),
+    let _ = reply_tx.send(ApiResult::OK {
+        value: feed_id.to_string(),
     });
 
     let new_state = state.clone().with_feed_added(feed);
@@ -334,7 +382,7 @@ fn reduce_confirm_feed(
 /// API: list all subscribed feeds.
 fn reduce_api_list_feeds(
     state: &AppState,
-    reply_tx: crossbeam_channel::Sender<Vec<FeedInfo>>,
+    reply_tx: crossbeam_channel::Sender<ApiResult<Vec<FeedInfo>>>,
 ) -> (AppState, Vec<Effect>) {
     let feeds: Vec<FeedInfo> = state
         .feeds
@@ -347,7 +395,7 @@ fn reduce_api_list_feeds(
             bangumi_info: f.bangumi_info.clone(),
         })
         .collect();
-    let _ = reply_tx.send(feeds);
+    let _ = reply_tx.send(ApiResult::OK { value: feeds });
     (state.clone(), vec![])
 }
 
@@ -356,17 +404,18 @@ fn reduce_api_list_feeds(
 fn reduce_api_remove_feed(
     state: &AppState,
     feed_id: Uuid,
-    reply_tx: crossbeam_channel::Sender<ApiResponse>,
+    reply_tx: crossbeam_channel::Sender<ApiResult<String>>,
 ) -> (AppState, Vec<Effect>) {
-    let msg = if state.feeds.contains_key(&feed_id) {
-        format!("feed {feed_id} removed")
-    } else {
-        format!("feed {feed_id} not found")
-    };
+    if !state.feeds.contains_key(&feed_id) {
+        let _ = reply_tx.send(ApiResult::Err {
+            code: http_code::NOT_FOUND,
+            message: format!("feed {feed_id} not found"),
+        });
+        return (state.clone(), vec![]);
+    }
     let new_state = state.clone().with_feed_removed(feed_id);
-    let _ = reply_tx.send(ApiResponse {
-        success: true,
-        message: msg,
+    let _ = reply_tx.send(ApiResult::OK {
+        value: format!("feed {feed_id} removed"),
     });
     (new_state, vec![])
 }
@@ -374,15 +423,25 @@ fn reduce_api_remove_feed(
 /// API: return cached download list immediately.
 fn reduce_api_list_downloads(
     state: &AppState,
-    reply_tx: crossbeam_channel::Sender<Vec<DownloadInfo>>,
+    reply_tx: crossbeam_channel::Sender<ApiResult<Vec<DownloadInfo>>>,
 ) -> (AppState, Vec<Effect>) {
-    let _ = reply_tx.send(state.cached_downloads.clone());
+    let _ = reply_tx.send(ApiResult::OK {
+        value: state.cached_downloads.clone(),
+    });
     (state.clone(), vec![])
 }
 
 /// Trigger a downloader refresh.
 fn reduce_refresh_downloads(state: &AppState) -> (AppState, Vec<Effect>) {
     (state.clone(), vec![Effect::QueryAllDownloads])
+}
+
+/// Health check — forward to the executor, which probes the downloader.
+fn reduce_check_downloader(
+    state: &AppState,
+    reply_tx: crossbeam_channel::Sender<ApiResult<()>>,
+) -> (AppState, Vec<Effect>) {
+    (state.clone(), vec![Effect::CheckDownloader { reply_tx }])
 }
 
 /// RSS fetch/parse failed — log and notify.
@@ -432,6 +491,59 @@ fn reduce_downloads_refreshed(
     state: &AppState,
     snapshots: Vec<DownloadSnapshot>,
 ) -> (AppState, Vec<Effect>) {
+    let known: HashSet<&str> = snapshots.iter().map(|s| s.infohash.as_str()).collect();
+
+    let effects: Vec<Effect> = Vec::new();
+    let mut new_state = state.clone();
+    let mut vanished_count = 0u32;
+
+    // Cross-reference: find tracker entries that vanished from aria2 (restart/removed)
+    // Remove both tracker entry and seen_urls so RSS poll can re-download.
+    for (ih, record) in &state.tracker {
+        if record.status != RecordStatus::Downloading {
+            continue;
+        }
+        if known.contains(ih.as_str()) {
+            continue;
+        }
+        vanished_count += 1;
+        log::warn!(
+            "task vanished from aria2: {} (infohash={})",
+            record.key.anime.name,
+            &ih[..ih.len().min(16)]
+        );
+        if !record.torrent_url.is_empty() {
+            new_state = new_state.with_seen_url_removed(&record.torrent_url);
+        }
+        new_state = new_state.with_tracker_removed(ih);
+    }
+    if vanished_count > 0 {
+        log::info!(
+            "reconciliation: {} snapshot(s) from aria2, {} tracker entry(ies), {} vanished → removed + seen_urls cleaned",
+            known.len(),
+            state.tracker.len(),
+            vanished_count,
+        );
+    }
+
+    // Cross-reference: detect duplicate downloads (same infohash, different status)
+    for (ih, record) in &state.tracker {
+        if record.status != RecordStatus::InLibrary {
+            continue;
+        }
+        // Check if another entry with the same infohash is still Downloading
+        if let Some(other) = state.tracker.get(ih)
+            && other.status == RecordStatus::Downloading
+            && other.infohash == record.infohash
+        {
+            log::warn!(
+                "duplicate download detected: infohash={} is both InLibrary and Downloading",
+                &ih[..ih.len().min(16)]
+            );
+        }
+    }
+
+    // Build cached download list as before
     let downloads: Vec<DownloadInfo> = snapshots
         .into_iter()
         .map(|s| {
@@ -453,8 +565,30 @@ fn reduce_downloads_refreshed(
         })
         .collect();
 
-    let new_state = state.clone().with_downloads_cached(downloads);
-    (new_state, vec![])
+    new_state = new_state.with_downloads_cached(downloads);
+    (new_state, effects)
+}
+
+/// API: query a single episode record by infohash (used for file serving).
+fn reduce_api_get_episode(
+    state: &AppState,
+    infohash: String,
+    reply_tx: crossbeam_channel::Sender<ApiResult<crate::types::EpisodeRecord>>,
+) -> (AppState, Vec<Effect>) {
+    match state.tracker.get(&infohash) {
+        Some(record) => {
+            let _ = reply_tx.send(ApiResult::OK {
+                value: record.clone(),
+            });
+        }
+        None => {
+            let _ = reply_tx.send(ApiResult::Err {
+                code: http_code::NOT_FOUND,
+                message: "not found".into(),
+            });
+        }
+    }
+    (state.clone(), vec![])
 }
 
 #[cfg(test)]
@@ -505,7 +639,7 @@ mod tests {
         let (new_state, _effects) = reduce_confirm_feed(
             &state,
             "https://example.com/rss".into(),
-            "葬送的芙莉莲".into(),
+            "虚构动画".into(),
             2,
             None,
             reply_tx,
@@ -513,11 +647,11 @@ mod tests {
 
         assert_eq!(new_state.feeds.len(), 1);
         let feed = new_state.feeds.values().next().unwrap();
-        assert_eq!(feed.anime.name, "葬送的芙莉莲");
+        assert_eq!(feed.anime.name, "虚构动画");
         assert_eq!(feed.anime.season, 2);
         assert!(feed.confirmed);
         let resp = reply_rx.try_recv().unwrap();
-        assert!(resp.success);
+        assert!(matches!(resp, ApiResult::OK { .. }));
     }
 
     #[test]
@@ -528,7 +662,7 @@ mod tests {
             id: feed_id,
             url: "https://example.com/rss".into(),
             anime: AnimeIdentity {
-                name: "Oshi no Ko".into(),
+                name: "虚构动画".into(),
                 season: 1,
             },
             confirmed: true,
@@ -541,8 +675,36 @@ mod tests {
         assert!(effects.is_empty());
         assert!(new_state.tracker.contains_key("DEADBEEF"));
         let record = new_state.tracker.get("DEADBEEF").unwrap();
-        assert_eq!(record.key.anime.name, "Oshi no Ko");
+        assert_eq!(record.key.anime.name, "虚构动画");
         assert_eq!(record.status, RecordStatus::Downloading);
+    }
+
+    #[test]
+    fn download_started_inserts_seen_url() {
+        let mut state = empty_state();
+        let feed_id = Uuid::new_v4();
+        let feed = Feed {
+            id: feed_id,
+            url: "https://example.com/rss".into(),
+            anime: AnimeIdentity {
+                name: "虚构动画".into(),
+                season: 1,
+            },
+            confirmed: true,
+            bangumi_info: None,
+        };
+        state.feeds.insert(feed_id, feed);
+
+        let url = "https://example.com/download/anime.torrent";
+        let (new_state, effects) =
+            reduce_download_started(&state, "DEADBEEF".into(), feed_id, url.into());
+        assert!(effects.is_empty());
+        assert!(
+            new_state.seen_urls.contains(url),
+            "seen_urls should contain the torrent URL"
+        );
+        let record = new_state.tracker.get("DEADBEEF").unwrap();
+        assert_eq!(record.torrent_url, url);
     }
 
     #[test]
@@ -553,7 +715,7 @@ mod tests {
             id: feed_id,
             url: "https://example.com/rss".into(),
             anime: AnimeIdentity {
-                name: "Oshi no Ko".into(),
+                name: "虚构动画".into(),
                 season: 1,
             },
             confirmed: true,
@@ -583,7 +745,7 @@ mod tests {
             feed_id,
             key: EpisodeKey {
                 anime: AnimeIdentity {
-                    name: "Oshi no Ko".into(),
+                    name: "虚构动画".into(),
                     season: 1,
                 },
                 episode: 0,
@@ -597,7 +759,7 @@ mod tests {
             &state,
             "DEADBEEF",
             1,
-            "/anime/Oshi no Ko/S01/Oshi no Ko S01E01.mkv".into(),
+            "/anime/虚构动画/S01/虚构动画 S01E01.mkv".into(),
         );
 
         assert_eq!(effects.len(), 1);
@@ -606,7 +768,7 @@ mod tests {
         assert_eq!(r.status, RecordStatus::InLibrary);
         assert_eq!(
             r.library_path.as_deref(),
-            Some("/anime/Oshi no Ko/S01/Oshi no Ko S01E01.mkv")
+            Some("/anime/虚构动画/S01/虚构动画 S01E01.mkv")
         );
     }
 
@@ -620,7 +782,7 @@ mod tests {
             feed_id,
             key: EpisodeKey {
                 anime: AnimeIdentity {
-                    name: "葬送的芙莉莲".into(),
+                    name: "虚构动画".into(),
                     season: 2,
                 },
                 episode: 38,
@@ -642,7 +804,7 @@ mod tests {
         let (new_state, _effects) = reduce_downloads_refreshed(&state, snapshots);
         assert_eq!(new_state.cached_downloads.len(), 1);
         let info = &new_state.cached_downloads[0];
-        assert_eq!(info.feed_name, "葬送的芙莉莲");
+        assert_eq!(info.feed_name, "虚构动画");
         assert_eq!(info.season, 2);
     }
 
@@ -653,7 +815,7 @@ mod tests {
         let (state2, _) = reduce_confirm_feed(
             &state,
             "https://example.com/rss".into(),
-            "Oshi no Ko".into(),
+            "虚构动画".into(),
             1,
             None,
             reply_tx,

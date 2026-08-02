@@ -400,6 +400,11 @@ textarea {
     color: #555;
 }
 
+.player-box {
+    max-width: 800px;
+    width: 90vw;
+}
+
 @media (max-width:480px) {
     .anime-card .cover {
         width: 30%;

@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::core::effect::Effect;
 
 /// All background fetch job types.
-pub enum FetchJob {
+pub(crate) enum FetchJob {
     DownloadTorrent {
         uri: String,
         save_path: String,
@@ -137,12 +137,12 @@ impl FetchPool {
 
     #[allow(dead_code)]
     /// Submit a job (blocks briefly if queue is full).
-    pub fn spawn(&self, job: FetchJob) {
+    pub(crate) fn spawn(&self, job: FetchJob) {
         self.tx.send(job).expect("fetch pool closed");
     }
 
     /// Try to submit a job without blocking.  Returns `Err(job)` if queue is full.
-    pub fn try_spawn(&self, job: FetchJob) -> Result<(), FetchJob> {
+    pub(crate) fn try_spawn(&self, job: FetchJob) -> Result<(), FetchJob> {
         self.tx.try_send(job).map_err(|e| e.into_inner())
     }
 }

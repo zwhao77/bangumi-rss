@@ -4,6 +4,7 @@ use envconfig::Envconfig;
 pub enum Downloader {
     Aria2,
     Qbittorrent,
+    Transmission,
 }
 
 impl std::str::FromStr for Downloader {
@@ -12,7 +13,8 @@ impl std::str::FromStr for Downloader {
         match s {
             "aria2" => Ok(Self::Aria2),
             "qbittorrent" => Ok(Self::Qbittorrent),
-            _ => Err("expected aria2 or qbittorrent"),
+            "transmission" => Ok(Self::Transmission),
+            _ => Err("expected aria2, qbittorrent, or transmission"),
         }
     }
 }
@@ -35,6 +37,8 @@ pub struct Config {
     pub mock_downloader: bool,
     #[envconfig(from = "RSS_INTERVAL", default = "900")]
     pub rss_interval: u64,
+    #[envconfig(from = "POLL_INTERVAL", default = "30")]
+    pub poll_interval: u64,
     #[envconfig(from = "ARIA2_RPC_URL", default = "http://localhost:6800/jsonrpc")]
     pub aria2_rpc_url: String,
     #[envconfig(from = "ARIA2_RPC_TOKEN", default = "")]
@@ -45,6 +49,15 @@ pub struct Config {
     pub qbittorrent_user: String,
     #[envconfig(from = "QBITTORRENT_PASS", default = "adminadmin")]
     pub qbittorrent_pass: String,
+    #[envconfig(
+        from = "TRANSMISSION_RPC_URL",
+        default = "http://localhost:9091/transmission/rpc"
+    )]
+    pub transmission_rpc_url: String,
+    #[envconfig(from = "TRANSMISSION_USER", default = "")]
+    pub transmission_user: String,
+    #[envconfig(from = "TRANSMISSION_PASS", default = "")]
+    pub transmission_pass: String,
     #[envconfig(from = "BANGUMI_API_BASE", default = "https://api.bgm.tv")]
     pub bangumi_api_base: String,
     #[envconfig(from = "TORRENT_CONCURRENCY", default = "4")]
@@ -57,7 +70,7 @@ pub struct Config {
     pub auth_password: String,
     #[envconfig(from = "BIND_ADDR", default = "127.0.0.1")]
     pub bind_addr: String,
-    #[envconfig(from = "MAX_CONNECTIONS", default = "128")]
+    #[envconfig(from = "MAX_CONNECTIONS", default = "16")]
     pub max_connections: u32,
     #[envconfig(from = "MAX_QUEUE", default = "0")]
     pub max_queue: u32,
@@ -109,6 +122,9 @@ impl Config {
 /// Default HTTP timeout for all outbound requests (RSS, torrent, Aria2 RPC, etc.).
 pub const HTTP_TIMEOUT_SECS: u64 = 10;
 
+/// Capacity for cross-thread bounded channels (event, effect, downloader command).
+pub const CHANNEL_CAPACITY: usize = 256;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,9 +162,14 @@ mod tests {
     }
 
     #[test]
+    fn valid_downloader_transmission() {
+        let c = Config::init_from_hashmap(&hashmap(&[("DOWNLOADER", "transmission")])).unwrap();
+        assert!(matches!(c.downloader, Downloader::Transmission));
+    }
+
+    #[test]
     fn invalid_downloader() {
-        let err =
-            Config::init_from_hashmap(&hashmap(&[("DOWNLOADER", "transmission")])).unwrap_err();
+        let err = Config::init_from_hashmap(&hashmap(&[("DOWNLOADER", "rutracker")])).unwrap_err();
         assert!(
             err.to_string().contains("DOWNLOADER"),
             "unexpected error: {err}"

@@ -10,16 +10,19 @@ use std::path::PathBuf;
 
 /// Result of scanning a completed torrent's files.
 pub(crate) struct ResolvedFile {
-    /// Original filename in the torrent, e.g. "[ANi] ... - 01.mp4".
+    /// Torrent-relative path of the source file, e.g. "[ANi] ... - 01.mp4".
+    /// Used as `old_path` when calling `downloader.rename_file()`.
+    pub original_path: String,
+    /// Original filename in the torrent (last component of `original_path`).
     pub original_name: String,
     /// Episode identity (anime + season + episode number).
     pub key: EpisodeKey,
     /// Normalised output name, e.g. "番剧名 S01E01.mp4".
     pub target_name: String,
-    /// Absolute source path (in download staging).
-    pub from: PathBuf,
     /// Absolute destination path (in media library).
     pub to: PathBuf,
+    /// Current actual file path — updated as ops proceed.
+    pub actual: PathBuf,
 }
 
 // ── Toolkit ──
@@ -44,7 +47,7 @@ fn episode_keys_match(a: &EpisodeKey, b: &EpisodeKey) -> bool {
     a.anime == b.anime && a.episode == b.episode
 }
 
-/// Build a standardised output filename, e.g. `"葬送的芙莉莲 S02E01.mkv"`.
+/// Build a standardised output filename, e.g. `"虚构动画 S02E01.mkv"`.
 fn key_to_target_name(key: &EpisodeKey, ext: &str) -> String {
     format!(
         "{} S{:02}E{:02}.{ext}",
@@ -95,14 +98,15 @@ pub(crate) fn resolve_files(
                 .and_then(|e| e.to_str())
                 .unwrap_or("mkv");
             let target_name = key_to_target_name(&actual_key, ext);
-            let from = PathBuf::from(format!("{}/{}/{}", download_dir, record.feed_id, f.name));
+            let from = PathBuf::from(format!("{}/{}/{}", download_dir, record.feed_id, f.path));
             let to = make_library_path(library_dir, &actual_key, &target_name);
 
             Some(ResolvedFile {
+                original_path: f.path.clone(),
                 original_name: f.name.clone(),
                 key: actual_key,
                 target_name,
-                from,
+                actual: from.clone(),
                 to,
             })
         })
@@ -134,7 +138,7 @@ mod tests {
 
     fn anime() -> AnimeIdentity {
         AnimeIdentity {
-            name: "葬送的芙莉莲".into(),
+            name: "虚构动画".into(),
             season: 2,
         }
     }
@@ -143,12 +147,15 @@ mod tests {
     fn resolve_matches_episode() {
         let files = vec![
             TorrentFile {
-                name: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
+                path: "[ANi] 虚构动画 - 01 [1080P].mp4".into(),
+                name: "[ANi] 虚构动画 - 01 [1080P].mp4".into(),
             },
             TorrentFile {
-                name: "[ANi] 葬送的芙莉莲 - 02 [1080P].mp4".into(),
+                path: "[ANi] 虚构动画 - 02 [1080P].mp4".into(),
+                name: "[ANi] 虚构动画 - 02 [1080P].mp4".into(),
             },
             TorrentFile {
+                path: "not-a-video.txt".into(),
                 name: "not-a-video.txt".into(),
             },
         ];
@@ -166,23 +173,23 @@ mod tests {
         let resolved = resolve_files(&files, &record, "/downloads", "/anime");
         assert_eq!(resolved.len(), 2);
         assert_eq!(resolved[0].key.episode, 1);
-        assert_eq!(resolved[0].target_name, "葬送的芙莉莲 S02E01.mp4");
+        assert_eq!(resolved[0].target_name, "虚构动画 S02E01.mp4");
         assert_eq!(resolved[1].key.episode, 2);
-        assert!(resolved[0].from.to_str().unwrap().contains("/downloads/"));
+        assert!(resolved[0].actual.to_str().unwrap().contains("/downloads/"));
         assert!(
             resolved[0]
                 .to
                 .to_str()
                 .unwrap()
-                .contains("/anime/葬送的芙莉莲/S02/")
+                .contains("/anime/虚构动画/S02/")
         );
     }
 
     #[test]
     fn file_to_episode_key_works() {
-        let key = file_to_episode_key("[ANi] 葬送的芙莉莲 - 01 [1080P].mp4", &anime()).unwrap();
+        let key = file_to_episode_key("[ANi] 虚构动画 - 01 [1080P].mp4", &anime()).unwrap();
         assert_eq!(key.episode, 1);
-        assert_eq!(key.anime.name, "葬送的芙莉莲");
+        assert_eq!(key.anime.name, "虚构动画");
     }
 
     #[test]
@@ -209,13 +216,14 @@ mod tests {
             anime: anime(),
             episode: 5,
         };
-        assert_eq!(key_to_target_name(&key, "mkv"), "葬送的芙莉莲 S02E05.mkv");
+        assert_eq!(key_to_target_name(&key, "mkv"), "虚构动画 S02E05.mkv");
     }
 
     #[test]
     fn resolve_expected_episode_overrides() {
         let files = vec![TorrentFile {
-            name: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
+            name: "[ANi] 虚构动画 - 01 [1080P].mp4".into(),
+            path: "[ANi] 虚构动画 - 01 [1080P].mp4".into(),
         }];
         let record = EpisodeRecord {
             infohash: "DEADBEEF".into(),
@@ -254,7 +262,8 @@ mod tests {
     #[test]
     fn resolve_episode_zero_filtered() {
         let files = vec![TorrentFile {
-            name: "[ANi] 葬送的芙莉莲 - 00 [1080P].mp4".into(),
+            name: "[ANi] 虚构动画 - 00 [1080P].mp4".into(),
+            path: "[ANi] 虚构动画 - 00 [1080P].mp4".into(),
         }];
         let record = EpisodeRecord {
             infohash: "DEADBEEF".into(),
@@ -275,10 +284,12 @@ mod tests {
     fn resolve_multi_file_second_uses_tokenizer() {
         let files = vec![
             TorrentFile {
-                name: "[ANi] 葬送的芙莉莲 - 01 [1080P].mp4".into(),
+                name: "[ANi] 虚构动画 - 01 [1080P].mp4".into(),
+                path: "[ANi] 虚构动画 - 01 [1080P].mp4".into(),
             },
             TorrentFile {
-                name: "[ANi] 葬送的芙莉莲 - 05 [1080P].mp4".into(),
+                name: "[ANi] 虚构动画 - 05 [1080P].mp4".into(),
+                path: "[ANi] 虚构动画 - 05 [1080P].mp4".into(),
             },
         ];
         let record = EpisodeRecord {

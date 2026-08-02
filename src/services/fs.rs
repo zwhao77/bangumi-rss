@@ -7,6 +7,10 @@ use crate::traits::FileOps;
 pub struct RealFileSystem;
 
 impl FileOps for RealFileSystem {
+    fn exists(&self, path: &Path) -> bool {
+        path.exists()
+    }
+
     fn move_file(&self, from: &Path, to: &Path) -> anyhow::Result<()> {
         // Try rename first (fast, same filesystem).
         if std::fs::rename(from, to).is_ok() {
@@ -28,5 +32,11 @@ impl FileOps for RealFileSystem {
 
     fn write_string(&self, path: &Path, content: &str) -> anyhow::Result<()> {
         Ok(std::fs::write(path, content)?)
+    }
+
+    fn open_file(&self, path: &Path) -> anyhow::Result<crate::types::FileStream> {
+        let file = std::fs::File::open(path)?;
+        let size = file.metadata()?.len();
+        Ok(crate::types::FileStream::new(file, size))
     }
 }
