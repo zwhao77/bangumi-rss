@@ -7,7 +7,7 @@
 ```bash
 cargo build                  # debug build
 cargo build --release        # release build
-cargo test                   # run all tests (96)
+cargo test                   # run all tests (109)
 cargo run                    # run directly (env vars below)
 ```
 
