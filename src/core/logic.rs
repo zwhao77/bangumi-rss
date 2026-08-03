@@ -115,7 +115,7 @@ fn reduce_rss_items_fetched(
         log::debug!("RssItemsFetched: feed {feed_id} no longer exists, skipping");
         return (state.clone(), vec![]);
     };
-    let compiled = match crate::utils::filter::CompiledFilter::compile(&feed.filter) {
+    let compiled = match crate::utils::filter::compile(&feed.filter) {
         Ok(c) => c,
         Err(e) => {
             // Shouldn't happen — filter is validated on create/update.
@@ -138,7 +138,7 @@ fn reduce_rss_items_fetched(
         }
         // Per-feed title filter (include/exclude regex + substring exclusions).
         if let Some(f) = &compiled
-            && !f.passes(&item.title)
+            && !crate::utils::filter::passes(f, &item.title)
         {
             log::debug!("skip filtered: {}", &item.title[..item.title.len().min(80)]);
             continue;
@@ -354,7 +354,7 @@ fn reduce_user_confirm(
     let exists = state.feeds.contains_key(&feed_id);
     if exists {
         if let Some(f) = &filter
-            && let Err(e) = crate::utils::filter::CompiledFilter::validate(f)
+            && let Err(e) = crate::utils::filter::validate(f)
         {
             let _ = reply_tx.send(ApiResult::Err {
                 code: http_code::BAD_REQUEST,
@@ -397,7 +397,7 @@ fn reduce_confirm_feed(
         });
         return (state.clone(), vec![]);
     }
-    if let Err(e) = crate::utils::filter::CompiledFilter::validate(&filter) {
+    if let Err(e) = crate::utils::filter::validate(&filter) {
         let _ = reply_tx.send(ApiResult::Err {
             code: http_code::BAD_REQUEST,
             message: format!("invalid filter: {e}"),

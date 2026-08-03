@@ -6,12 +6,20 @@
 //! filter is applied to RSS item titles before a torrent is added, so users
 //! can keep same-episode torrents from different groups while excluding
 //! unwanted ones.
+//!
+//! Separation of concerns:
+//! - [`crate::types::FeedFilter`] is the pure persisted data type (serde only);
+//! - [`validate`] checks a filter before it is persisted (create/update);
+//! - [`compile`] builds a reusable [`CompiledFilter`] once per RSS tick;
+//! - [`passes`] tests one title — total, cannot fail once compiled.
 
 use regex::Regex;
 
 use crate::types::FeedFilter;
 
 /// Compiled version of [`FeedFilter`] — regex compiled once per feed tick.
+///
+/// Opaque handle: build with [`compile`], test with [`passes`].
 pub struct CompiledFilter {
     /// Lowercased whitelist words.
     include: Vec<String>,
@@ -21,51 +29,52 @@ pub struct CompiledFilter {
     regex: Option<Regex>,
 }
 
-impl CompiledFilter {
-    /// Compile a filter. Returns `Ok(None)` when the filter is empty (nothing
-    /// to check), `Err` on an invalid regex pattern.
-    pub fn compile(filter: &FeedFilter) -> Result<Option<Self>, regex::Error> {
-        if filter.include.is_empty() && filter.exclude.is_empty() && filter.regex.is_none() {
-            return Ok(None);
-        }
-        let regex = filter.regex.as_deref().map(Regex::new).transpose()?;
-        Ok(Some(Self {
-            include: filter.include.iter().map(|s| s.to_lowercase()).collect(),
-            exclude: filter.exclude.iter().map(|s| s.to_lowercase()).collect(),
-            regex,
-        }))
+/// Compile a filter. Returns `Ok(None)` when the filter is empty (nothing to
+/// check), `Err` when the regex pattern is invalid.
+pub fn compile(filter: &FeedFilter) -> Result<Option<CompiledFilter>, regex::Error> {
+    if filter.include.is_empty() && filter.exclude.is_empty() && filter.regex.is_none() {
+        return Ok(None);
     }
+    let regex = filter.regex.as_deref().map(Regex::new).transpose()?;
+    Ok(Some(CompiledFilter {
+        include: filter.include.iter().map(|s| s.to_lowercase()).collect(),
+        exclude: filter.exclude.iter().map(|s| s.to_lowercase()).collect(),
+        regex,
+    }))
+}
 
-    /// Validate a filter before persisting it: reject whitespace-only words
-    /// (an empty substring would match every title) and invalid regex.
-    pub fn validate(filter: &FeedFilter) -> Result<(), String> {
-        for word in filter.include.iter().chain(filter.exclude.iter()) {
-            if word.trim().is_empty() {
-                return Err("filter words must not be empty".into());
-            }
+/// Validate a filter before persisting it: reject whitespace-only words
+/// (an empty substring would match every title) and invalid regex.
+pub fn validate(filter: &FeedFilter) -> Result<(), String> {
+    for word in filter.include.iter().chain(filter.exclude.iter()) {
+        if word.trim().is_empty() {
+            return Err("filter words must not be empty".into());
         }
-        if let Some(pattern) = &filter.regex {
-            Regex::new(pattern).map_err(|e| format!("invalid regex: {e}"))?;
-        }
-        Ok(())
     }
+    if let Some(pattern) = &filter.regex {
+        Regex::new(pattern).map_err(|e| format!("invalid regex: {e}"))?;
+    }
+    Ok(())
+}
 
-    /// Whether a title passes the filter (true = allowed to download).
-    ///
-    /// Order: include words (all must be present when non-empty) → exclude
-    /// words (any hit rejects) → regex (must match when present).
-    pub fn passes(&self, title: &str) -> bool {
-        let lower = title.to_lowercase();
-        if !self.include.is_empty() && !self.include.iter().all(|w| lower.contains(w)) {
-            return false;
-        }
-        if self.exclude.iter().any(|w| lower.contains(w)) {
-            return false;
-        }
-        match &self.regex {
-            Some(re) => re.is_match(title),
-            None => true,
-        }
+/// Whether a title passes a compiled filter (true = allowed to download).
+///
+/// Total: cannot fail once [`compile`] succeeded — `regex::Regex` reports all
+/// errors at compile time; matching is infallible.
+///
+/// Order: include words (all must be present when non-empty) → exclude words
+/// (any hit rejects) → regex (must match when present).
+pub fn passes(compiled: &CompiledFilter, title: &str) -> bool {
+    let lower = title.to_lowercase();
+    if !compiled.include.is_empty() && !compiled.include.iter().all(|w| lower.contains(w)) {
+        return false;
+    }
+    if compiled.exclude.iter().any(|w| lower.contains(w)) {
+        return false;
+    }
+    match &compiled.regex {
+        Some(re) => re.is_match(title),
+        None => true,
     }
 }
 
@@ -74,9 +83,9 @@ mod tests {
     use super::*;
 
     fn pass(filter: &FeedFilter, title: &str) -> bool {
-        CompiledFilter::compile(filter)
+        compile(filter)
             .unwrap()
-            .map(|c| c.passes(title))
+            .map(|c| passes(&c, title))
             .unwrap_or(true)
     }
 
@@ -139,8 +148,8 @@ mod tests {
             regex: Some("(".into()),
             ..Default::default()
         };
-        assert!(CompiledFilter::compile(&f).is_err());
-        assert!(CompiledFilter::validate(&f).is_err());
+        assert!(compile(&f).is_err());
+        assert!(validate(&f).is_err());
     }
 
     #[test]
@@ -149,13 +158,13 @@ mod tests {
             include: vec!["  ".into()],
             ..Default::default()
         };
-        assert!(CompiledFilter::validate(&f).is_err());
+        assert!(validate(&f).is_err());
 
         let ok = FeedFilter {
             exclude: vec!["720p".into()],
             ..Default::default()
         };
-        assert!(CompiledFilter::validate(&ok).is_ok());
+        assert!(validate(&ok).is_ok());
     }
 
     #[test]
