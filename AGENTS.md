@@ -86,7 +86,8 @@ Event Sources (timers, server)
 | `services/downloader/qbittorrent.rs` | `QbittorrentDownloader` — Web API client, HTTP Basic Auth (v5.0+) |
 | `services/downloader/transmission.rs` | `TransmissionDownloader` — JSON-RPC 2.0 client with CSRF session handling |
 | `services/downloader/mock.rs` | `MockDownloader`, `MockFileSystem` (all use `Mutex` for thread safety) |
-| `utils/handler.rs` | Pure post‑download logic: `resolve_files`, toolkit functions (8 tests) |
+| `utils/handler.rs` | Pure post-download logic: `resolve_files`, toolkit functions (8 tests) |
+| `utils/filter.rs` | Per-feed torrent title filter: include/exclude regex + substring exclusion (6 tests) |
 | `utils/tokenizer.rs` | Regex-based torrent title parser + batch detection (8 tests) |
 | `utils/rss.rs` | Pure RSS XML parsing: `parse_rss()`, `parse_preview()` (6 tests) |
 | `utils/notify.rs` | Webhook renderer: bark/gotify/serverchan templates (14 tests) |
@@ -114,7 +115,10 @@ AnimeIdentity { name, season }
 ```
 
 - `AppState.seen_urls: HashSet<String>` — persisted URL dedup, survives restarts.
-- `EpisodeRecord.library_path` — populated after file move to media library.- `Feed.bangumi_info: Option<BangumiInfo>` — attached on confirm if preview fetched it; persisted in `state.json`.- Batch torrents (`01-12`, `01~12`) are rejected at RSS fetch time.
+- `EpisodeRecord.library_path` — populated after file move to media library.
+- `Feed.bangumi_info: Option<BangumiInfo>` — attached on confirm if preview fetched it; persisted in `state.json`.
+- `Feed.filter: FeedFilter` — per-feed include/exclude regex + `exclude_substrings`; validated on create/update, applied to RSS titles at fetch time (empty = accept all). Persisted via `#[serde(default)]`, so old `state.json` loads unchanged.
+- Batch torrents (`01-12`, `01~12`) are rejected at RSS fetch time.
 
 ## Feed Confirmation Pipeline (preview + subscribe)
 
@@ -134,7 +138,7 @@ POST /api/feeds/confirm { name, season, bangumi_info? }
 ```
 RssTickAll → Effect::FetchRss
   → executor: rss.fetch() → Event::RssItemsFetched
-    → logic: URL dedup (seen_urls) + batch rejection → Effect::AddTorrent
+    → logic: URL dedup (seen_urls) + batch rejection + per-feed title filter → Effect::AddTorrent
       → executor: downloader.add_uri() → Event::DownloadStarted
         → logic: tracker ← EpisodeRecord { infohash, torrent_url, ... }
 

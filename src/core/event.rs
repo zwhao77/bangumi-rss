@@ -7,7 +7,7 @@ use crate::core::effect::Effect;
 use crate::core::state::AppState;
 use crate::services::persistence::save_state;
 use crate::traits::FileOps;
-use crate::types::{ApiResult, BangumiInfo, FeedInfo, RssItem};
+use crate::types::{ApiResult, BangumiInfo, FeedFilter, FeedInfo, RssItem};
 
 /// Events flow **inward** to the logic thread.
 #[derive(Debug)]
@@ -55,6 +55,8 @@ pub enum Event {
         name: String,
         season: u8,
         bangumi_info: Option<BangumiInfo>,
+        /// `None` keeps the feed's current filter (e.g. update without touching it).
+        filter: Option<FeedFilter>,
         reply_tx: crossbeam_channel::Sender<ApiResult<String>>,
     },
 
@@ -64,6 +66,7 @@ pub enum Event {
         name: String,
         season: u8,
         bangumi_info: Option<BangumiInfo>,
+        filter: FeedFilter,
         reply_tx: crossbeam_channel::Sender<ApiResult<String>>,
     },
 

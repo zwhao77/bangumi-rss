@@ -120,6 +120,31 @@ aria2 has the following known limitations with BitTorrent torrents:
 > - **Transmission** suits low-memory devices (routers / NAS): simple and well-documented. It's less feature-rich and may be slower in some peer/end-game scenarios.
 > - **aria2** is best for direct (HTTP) downloads; for BitTorrent it lacks rename/move APIs and stops seeding after completion.
 
+## Torrent Filtering
+
+Each feed can carry a title filter, applied to RSS items before download. Useful
+when the same episode is released by multiple groups and you only want some of
+them — there is no episode-level dedup by design.
+
+```json
+{
+  "url": "https://mikanani.me/RSS/Classic/...",
+  "name": "示例番剧",
+  "season": 1,
+  "filter": {
+    "include_regex": ["SubA|SubB"],
+    "exclude_regex": ["720P"],
+    "exclude_substrings": ["sample"]
+  }
+}
+```
+
+- `include_regex` (optional): non-empty → the title must match at least one pattern.
+- `exclude_regex` (optional): the title matching any pattern is skipped.
+- `exclude_substrings` (optional): the title containing any substring (case-insensitive) is skipped.
+- All fields optional; an empty filter accepts everything. Send the same object
+  via `PUT /api/feeds/{id}` to update; omitting `filter` keeps the current one.
+
 ## Notifications
 
 bangumi-rss sends webhook notifications on download completions and failures.

@@ -10,8 +10,8 @@ use std::collections::HashSet;
 
 use crate::types::{
     AnimeIdentity, ApiResult, BangumiInfo, DownloadInfo, DownloadSnapshot, EpisodeDownloadedData,
-    EpisodeKey, EpisodeRecord, FailedData, FeedInfo, Notification, RecordStatus, RssItem,
-    http_code,
+    EpisodeKey, EpisodeRecord, FailedData, FeedFilter, FeedInfo, Notification, RecordStatus,
+    RssItem, http_code,
 };
 use uuid::Uuid;
 
@@ -45,15 +45,17 @@ pub(crate) fn reduce(state: &AppState, event: Event) -> (AppState, Vec<Effect>) 
             name,
             season,
             bangumi_info,
+            filter,
             reply_tx,
-        } => reduce_user_confirm(state, feed_id, name, season, bangumi_info, reply_tx),
+        } => reduce_user_confirm(state, feed_id, name, season, bangumi_info, filter, reply_tx),
         Event::ConfirmFeed {
             url,
             name,
             season,
             bangumi_info,
+            filter,
             reply_tx,
-        } => reduce_confirm_feed(state, url, name, season, bangumi_info, reply_tx),
+        } => reduce_confirm_feed(state, url, name, season, bangumi_info, filter, reply_tx),
         Event::ApiListFeeds { reply_tx } => reduce_api_list_feeds(state, reply_tx),
         Event::ApiRemoveFeed { feed_id, reply_tx } => {
             reduce_api_remove_feed(state, feed_id, reply_tx)
@@ -109,6 +111,19 @@ fn reduce_rss_items_fetched(
     items: Vec<RssItem>,
     download_dir: &str,
 ) -> (AppState, Vec<Effect>) {
+    let Some(feed) = state.feeds.get(&feed_id) else {
+        log::debug!("RssItemsFetched: feed {feed_id} no longer exists, skipping");
+        return (state.clone(), vec![]);
+    };
+    let compiled = match crate::utils::filter::CompiledFilter::compile(&feed.filter) {
+        Ok(c) => c,
+        Err(e) => {
+            // Shouldn't happen — filter is validated on create/update.
+            log::error!("feed {feed_id} has invalid filter ({e}); skipping all items");
+            return (state.clone(), vec![]);
+        }
+    };
+
     let mut effects = Vec::new();
     let total = items.len();
 
@@ -119,6 +134,13 @@ fn reduce_rss_items_fetched(
         // Reject batch torrents (e.g. "01-12"). Detected during RSS parsing.
         if item.is_batch {
             log::debug!("skip batch: {}", &item.title[..item.title.len().min(80)]);
+            continue;
+        }
+        // Per-feed title filter (include/exclude regex + substring exclusions).
+        if let Some(f) = &compiled
+            && !f.passes(&item.title)
+        {
+            log::debug!("skip filtered: {}", &item.title[..item.title.len().min(80)]);
             continue;
         }
         effects.push(Effect::AddTorrent {
@@ -326,23 +348,35 @@ fn reduce_user_confirm(
     name: String,
     season: u8,
     bangumi_info: Option<BangumiInfo>,
+    filter: Option<FeedFilter>,
     reply_tx: crossbeam_channel::Sender<ApiResult<String>>,
 ) -> (AppState, Vec<Effect>) {
     let exists = state.feeds.contains_key(&feed_id);
-    let new_state = state
-        .clone()
-        .with_feed_confirmed(feed_id, name, season, bangumi_info);
     if exists {
+        if let Some(f) = &filter
+            && let Err(e) = crate::utils::filter::CompiledFilter::compile(f)
+        {
+            let _ = reply_tx.send(ApiResult::Err {
+                code: http_code::BAD_REQUEST,
+                message: format!("invalid filter: {e}"),
+            });
+            return (state.clone(), vec![]);
+        }
+        let new_state =
+            state
+                .clone()
+                .with_feed_confirmed(feed_id, name, season, bangumi_info, filter);
         let _ = reply_tx.send(ApiResult::OK {
             value: "updated".into(),
         });
+        (new_state, vec![])
     } else {
         let _ = reply_tx.send(ApiResult::Err {
             code: http_code::NOT_FOUND,
             message: format!("feed {feed_id} not found"),
         });
+        (state.clone(), vec![])
     }
-    (new_state, vec![])
 }
 
 /// API: request RSS preview — logic emits effect, executor replies directly.
@@ -353,12 +387,20 @@ fn reduce_confirm_feed(
     name: String,
     season: u8,
     bangumi_info: Option<BangumiInfo>,
+    filter: FeedFilter,
     reply_tx: crossbeam_channel::Sender<ApiResult<String>>,
 ) -> (AppState, Vec<Effect>) {
     if name.trim().is_empty() {
         let _ = reply_tx.send(ApiResult::Err {
             code: http_code::BAD_REQUEST,
             message: "name cannot be empty".into(),
+        });
+        return (state.clone(), vec![]);
+    }
+    if let Err(e) = crate::utils::filter::CompiledFilter::compile(&filter) {
+        let _ = reply_tx.send(ApiResult::Err {
+            code: http_code::BAD_REQUEST,
+            message: format!("invalid filter: {e}"),
         });
         return (state.clone(), vec![]);
     }
@@ -369,6 +411,7 @@ fn reduce_confirm_feed(
         anime: AnimeIdentity { name, season },
         confirmed: true,
         bangumi_info,
+        filter,
     };
 
     let _ = reply_tx.send(ApiResult::OK {
@@ -393,6 +436,7 @@ fn reduce_api_list_feeds(
             url: f.url.clone(),
             season: f.anime.season,
             bangumi_info: f.bangumi_info.clone(),
+            filter: f.filter.clone(),
         })
         .collect();
     let _ = reply_tx.send(ApiResult::OK { value: feeds });
@@ -642,6 +686,7 @@ mod tests {
             "虚构动画".into(),
             2,
             None,
+            Default::default(),
             reply_tx,
         );
 
@@ -667,6 +712,7 @@ mod tests {
             },
             confirmed: true,
             bangumi_info: None,
+            filter: Default::default(),
         };
         state.feeds.insert(feed_id, feed);
 
@@ -692,6 +738,7 @@ mod tests {
             },
             confirmed: true,
             bangumi_info: None,
+            filter: Default::default(),
         };
         state.feeds.insert(feed_id, feed);
 
@@ -720,6 +767,7 @@ mod tests {
             },
             confirmed: true,
             bangumi_info: None,
+            filter: Default::default(),
         };
         state.feeds.insert(feed_id, feed);
 
@@ -818,6 +866,7 @@ mod tests {
             "虚构动画".into(),
             1,
             None,
+            Default::default(),
             reply_tx,
         );
 
@@ -834,5 +883,146 @@ mod tests {
         assert_eq!(effects.len(), 1);
         assert!(matches!(effects[0], Effect::Notify(_)));
         assert_eq!(new_state, state);
+    }
+
+    #[test]
+    fn rss_items_respect_feed_filter() {
+        let mut state = empty_state();
+        let feed_id = Uuid::new_v4();
+        state.feeds.insert(
+            feed_id,
+            Feed {
+                id: feed_id,
+                url: "https://example.com/rss".into(),
+                anime: AnimeIdentity {
+                    name: "虚构动画".into(),
+                    season: 1,
+                },
+                confirmed: true,
+                bangumi_info: None,
+                filter: FeedFilter {
+                    exclude_substrings: vec!["SAMPLE".into()],
+                    ..Default::default()
+                },
+            },
+        );
+
+        let items = vec![
+            RssItem {
+                title: "[SubA] 虚构动画 - 01 [1080P].mp4".into(),
+                torrent_url: "https://example.com/01.torrent".into(),
+                is_batch: false,
+            },
+            RssItem {
+                title: "[SubA] 虚构动画 - 01 SAMPLE [1080P].mp4".into(),
+                torrent_url: "https://example.com/01-sample.torrent".into(),
+                is_batch: false,
+            },
+            RssItem {
+                title: "[SubB] 虚构动画 - 01 [720P].mp4".into(),
+                torrent_url: "https://example.com/01-b.torrent".into(),
+                is_batch: false,
+            },
+        ];
+
+        let (new_state, effects) = reduce_rss_items_fetched(&state, feed_id, items, "/downloads");
+        assert_eq!(effects.len(), 2, "SAMPLE item must be filtered out");
+        for e in &effects {
+            match e {
+                Effect::AddTorrent { torrent_url, .. } => {
+                    assert!(!torrent_url.contains("sample"));
+                }
+                other => panic!("expected AddTorrent, got {other:?}"),
+            }
+        }
+        assert_eq!(new_state, state);
+    }
+
+    #[test]
+    fn rss_items_for_missing_feed_are_skipped() {
+        let state = empty_state();
+        let items = vec![RssItem {
+            title: "[SubA] 虚构动画 - 01 [1080P].mp4".into(),
+            torrent_url: "https://example.com/01.torrent".into(),
+            is_batch: false,
+        }];
+        let (new_state, effects) =
+            reduce_rss_items_fetched(&state, Uuid::new_v4(), items, "/downloads");
+        assert!(effects.is_empty());
+        assert_eq!(new_state, state);
+    }
+
+    #[test]
+    fn confirm_feed_rejects_invalid_filter() {
+        let state = empty_state();
+        let (reply_tx, reply_rx) = crossbeam_channel::bounded(1);
+        let (new_state, effects) = reduce_confirm_feed(
+            &state,
+            "https://example.com/rss".into(),
+            "虚构动画".into(),
+            1,
+            None,
+            FeedFilter {
+                include_regex: vec!["(".into()],
+                ..Default::default()
+            },
+            reply_tx,
+        );
+
+        assert!(effects.is_empty());
+        assert_eq!(new_state, state);
+        let resp = reply_rx.try_recv().unwrap();
+        assert!(matches!(
+            resp,
+            ApiResult::Err {
+                code: http_code::BAD_REQUEST,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn user_confirm_keeps_filter_when_absent() {
+        let mut state = empty_state();
+        let feed_id = Uuid::new_v4();
+        state.feeds.insert(
+            feed_id,
+            Feed {
+                id: feed_id,
+                url: "https://example.com/rss".into(),
+                anime: AnimeIdentity {
+                    name: "虚构动画".into(),
+                    season: 1,
+                },
+                confirmed: true,
+                bangumi_info: None,
+                filter: FeedFilter {
+                    exclude_substrings: vec!["SAMPLE".into()],
+                    ..Default::default()
+                },
+            },
+        );
+
+        // Update without a filter → existing filter preserved.
+        let (reply_tx, _) = crossbeam_channel::bounded(1);
+        let (new_state, effects) =
+            reduce_user_confirm(&state, feed_id, "虚构动画".into(), 1, None, None, reply_tx);
+        assert!(effects.is_empty());
+        let feed = new_state.feeds.get(&feed_id).unwrap();
+        assert_eq!(feed.filter.exclude_substrings, vec!["SAMPLE".to_string()]);
+
+        // Update with an explicit filter → replaced.
+        let (reply_tx, _) = crossbeam_channel::bounded(1);
+        let (new_state, _) = reduce_user_confirm(
+            &state,
+            feed_id,
+            "虚构动画".into(),
+            1,
+            None,
+            Some(FeedFilter::default()),
+            reply_tx,
+        );
+        let feed = new_state.feeds.get(&feed_id).unwrap();
+        assert!(feed.filter.exclude_substrings.is_empty());
     }
 }

@@ -269,6 +269,7 @@ mod mock_fs {
                         },
                         confirmed: true,
                         bangumi_info: None,
+                        filter: Default::default(),
                     },
                 )]
                 .into_iter()

@@ -119,6 +119,28 @@ aria2 对于 BitTorrent 种子存在以下已知限制：
 > - **Transmission** 适合低内存设备（路由器 / NAS）：简单、文档完善；但功能较少，某些 peer/末尾块场景可能较慢。
 > - **aria2** 最适合直链（HTTP）下载；BT 场景缺少 rename/move API，且完成后即停止做种。
 
+## 种子过滤
+
+每个订阅都可以带一个标题过滤器，在 RSS 条目进入下载前生效。适合同一集被多个字幕组发布、而你只想要其中一部分的场景——按设计**不做**按集数去重。
+
+```json
+{
+  "url": "https://mikanani.me/RSS/Classic/...",
+  "name": "示例番剧",
+  "season": 1,
+  "filter": {
+    "include_regex": ["SubA|SubB"],
+    "exclude_regex": ["720P"],
+    "exclude_substrings": ["sample"]
+  }
+}
+```
+
+- `include_regex`（可选）：非空时标题必须至少命中其中一个模式。
+- `exclude_regex`（可选）：标题命中任一模式即跳过。
+- `exclude_substrings`（可选）：标题包含任一字符串（不区分大小写）即跳过。
+- 所有字段均可选；空过滤器表示全部接受。通过 `PUT /api/feeds/{id}` 发送同样的对象即可更新；省略 `filter` 字段则保留当前过滤器。
+
 ## 通知
 
 bangumi-rss 在下载完成或失败时发送 Webhook 通知。
