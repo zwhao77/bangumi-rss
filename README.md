@@ -139,8 +139,9 @@ them — there is no episode-level dedup by design.
 }
 ```
 
-- `include` (optional): whitelist words — non-empty → the title must contain at
-  least one word (case-insensitive substring, no regex escaping needed).
+- `include` (optional): whitelist words — non-empty → the title must contain
+  **all** words (ANDed, like qBittorrent's Must Contain; case-insensitive
+  substrings, no regex escaping needed). Use `regex` with `|` for OR.
 - `exclude` (optional): blacklist words — the title containing any word is skipped.
 - `regex` (optional): advanced escape hatch — when set, the title must match this
   pure Rust regex (no lookaround/backreferences; `(?i)` works).

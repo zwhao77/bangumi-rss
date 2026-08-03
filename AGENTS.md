@@ -87,7 +87,7 @@ Event Sources (timers, server)
 | `services/downloader/transmission.rs` | `TransmissionDownloader` — JSON-RPC 2.0 client with CSRF session handling |
 | `services/downloader/mock.rs` | `MockDownloader`, `MockFileSystem` (all use `Mutex` for thread safety) |
 | `utils/handler.rs` | Pure post-download logic: `resolve_files`, toolkit functions (8 tests) |
-| `utils/filter.rs` | Per-feed torrent title filter: include/exclude regex + substring exclusion (6 tests) |
+| `utils/filter.rs` | Per-feed torrent title filter: include/exclude words (AND/OR substrings) + optional regex (8 tests) |
 | `utils/tokenizer.rs` | Regex-based torrent title parser + batch detection (8 tests) |
 | `utils/rss.rs` | Pure RSS XML parsing: `parse_rss()`, `parse_preview()` (6 tests) |
 | `utils/notify.rs` | Webhook renderer: bark/gotify/serverchan templates (14 tests) |
@@ -117,7 +117,7 @@ AnimeIdentity { name, season }
 - `AppState.seen_urls: HashSet<String>` — persisted URL dedup, survives restarts.
 - `EpisodeRecord.library_path` — populated after file move to media library.
 - `Feed.bangumi_info: Option<BangumiInfo>` — attached on confirm if preview fetched it; persisted in `state.json`.
-- `Feed.filter: FeedFilter` — per-feed whitelist/blacklist words (`include`/`exclude`, case-insensitive substrings) + optional advanced `regex`; validated on create/update, applied to RSS titles at fetch time (empty = accept all). Persisted via `#[serde(default)]`, so old `state.json` loads unchanged.
+- `Feed.filter: FeedFilter` — per-feed whitelist/blacklist words (`include`/`exclude`, case-insensitive substrings; include = AND, exclude = OR) + optional advanced `regex`; validated on create/update, applied to RSS titles at fetch time (empty = accept all). Persisted via `#[serde(default)]`, so old `state.json` loads unchanged.
 - Batch torrents (`01-12`, `01~12`) are rejected at RSS fetch time.
 
 ## Feed Confirmation Pipeline (preview + subscribe)

@@ -52,11 +52,11 @@ impl CompiledFilter {
 
     /// Whether a title passes the filter (true = allowed to download).
     ///
-    /// Order: include words (must contain ≥1 when non-empty) → exclude words
-    /// (any hit rejects) → regex (must match when present).
+    /// Order: include words (all must be present when non-empty) → exclude
+    /// words (any hit rejects) → regex (must match when present).
     pub fn passes(&self, title: &str) -> bool {
         let lower = title.to_lowercase();
-        if !self.include.is_empty() && !self.include.iter().any(|w| lower.contains(w)) {
+        if !self.include.is_empty() && !self.include.iter().all(|w| lower.contains(w)) {
             return false;
         }
         if self.exclude.iter().any(|w| lower.contains(w)) {
@@ -88,13 +88,13 @@ mod tests {
     }
 
     #[test]
-    fn include_words_require_any_hit() {
+    fn include_words_require_all_hits() {
         let f = FeedFilter {
             include: vec!["subA".into(), "subb".into()],
             ..Default::default()
         };
-        assert!(pass(&f, "[SubA] 虚构动画 - 01 [1080P].mp4"));
-        assert!(pass(&f, "[SubB] 虚构动画 - 01 [1080P].mp4"));
+        assert!(pass(&f, "[SubA] 虚构动画 - SubB 01 [1080P].mp4"));
+        assert!(!pass(&f, "[SubA] 虚构动画 - 01 [1080P].mp4")); // missing SubB
         assert!(!pass(&f, "[SubC] 虚构动画 - 01 [1080P].mp4"));
     }
 
