@@ -87,7 +87,6 @@ DOWNLOAD_DIR=/downloads LIBRARY_DIR=/anime ./target/release/bangumi-rss
 | `QUEUE_CAPACITY` | `512` | Worker pool 队列容量 |
 | `BIND_ADDR` | `127.0.0.1` | HTTP 监听地址（`0.0.0.0` 监听所有接口） |
 | `MAX_CONNECTIONS` | `16` | Rouille 线程池连接数 |
-| `MAX_QUEUE` | `0` | HTTP 连接队列上限 |
 | `AUTH_USERNAME` | — | Basic Auth 用户名（留空不启用） |
 | `AUTH_PASSWORD` | — | Basic Auth 密码 |
 | `RUST_LOG` | `info` | 日志级别（设为 `warn` 可减少输出） |

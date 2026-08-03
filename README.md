@@ -88,7 +88,6 @@ Open `http://localhost:7893` in browser to subscribe and manage.
 | `QUEUE_CAPACITY` | `512` | Worker pool job queue capacity |
 | `BIND_ADDR` | `127.0.0.1` | HTTP server bind address (`0.0.0.0` for all interfaces) |
 | `MAX_CONNECTIONS` | `16` | Rouille thread-pool connection count |
-| `MAX_QUEUE` | `0` | HTTP connection queue limit |
 | `AUTH_USERNAME` | — | Basic Auth username (empty = no auth) |
 | `AUTH_PASSWORD` | — | Basic Auth password |
 | `RUST_LOG` | `info` | Log level (`warn` to quieten, `debug` for verbose) |
