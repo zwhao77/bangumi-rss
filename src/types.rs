@@ -61,8 +61,8 @@ pub struct FeedInfo {
 ///
 /// Applied to RSS item titles before a torrent is added. Three independent
 /// rules, all optional, evaluated in order:
-/// - `include` (whitelist words): non-empty → the title must contain at least
-///   one word (case-insensitive substring).
+/// - `include` (whitelist words): non-empty → the title must contain all
+///   words (case-insensitive substrings; AND logic).
 /// - `exclude` (blacklist words): the title containing any word is skipped
 ///   (case-insensitive substring).
 /// - `regex` (advanced): when present, the title must match this pure Rust

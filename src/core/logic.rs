@@ -138,9 +138,9 @@ fn reduce_rss_items_fetched(
         }
         // Per-feed title filter (include/exclude regex + substring exclusions).
         if let Some(f) = &compiled
-            && !crate::utils::filter::passes(f, &item.title)
+            && let Some(reason) = crate::utils::filter::reject_reason(f, &item.title)
         {
-            log::debug!("skip filtered: {}", &item.title[..item.title.len().min(80)]);
+            log::debug!("skip filtered: {} ({reason})", item.title);
             continue;
         }
         effects.push(Effect::AddTorrent {

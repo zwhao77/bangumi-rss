@@ -11,7 +11,8 @@
 //! - [`crate::types::FeedFilter`] is the pure persisted data type (serde only);
 //! - [`validate`] checks a filter before it is persisted (create/update);
 //! - [`compile`] builds a reusable [`CompiledFilter`] once per RSS tick;
-//! - [`passes`] tests one title — total, cannot fail once compiled.
+//! - [`reject_reason`] tests one title — returns the first failing rule or
+//!   `None`; total, cannot fail once compiled.
 
 use regex::Regex;
 
@@ -19,7 +20,7 @@ use crate::types::FeedFilter;
 
 /// Compiled version of [`FeedFilter`] — regex compiled once per feed tick.
 ///
-/// Opaque handle: build with [`compile`], test with [`passes`].
+/// Opaque handle: build with [`compile`], test with [`reject_reason`].
 pub struct CompiledFilter {
     /// Lowercased whitelist words.
     include: Vec<String>,
@@ -57,43 +58,75 @@ pub fn validate(filter: &FeedFilter) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether a title passes a compiled filter (true = allowed to download).
+/// Why a title was rejected by a compiled filter.
+///
+/// First failing rule wins, in evaluation order: include → exclude → regex.
+/// The carried word/pattern is the *first* trigger — e.g. the first missing
+/// whitelist word — which is enough to fix a filter against the original
+/// title shown in the log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RejectReason {
+    /// A whitelist word is missing from the title.
+    IncludeMissing { word: String },
+    /// A blacklist word was found in the title.
+    ExcludeMatched { word: String },
+    /// The advanced regex did not match (carries the original pattern).
+    RegexNoMatch { pattern: String },
+}
+
+impl std::fmt::Display for RejectReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IncludeMissing { word } => write!(f, "missing include word: {word}"),
+            Self::ExcludeMatched { word } => write!(f, "excluded word matched: {word}"),
+            Self::RegexNoMatch { pattern } => write!(f, "regex did not match: {pattern}"),
+        }
+    }
+}
+
+/// Test one title against a compiled filter.
+///
+/// Returns the first failing rule with its trigger word/pattern, or `None`
+/// when the title passes.
 ///
 /// Total: cannot fail once [`compile`] succeeded — `regex::Regex` reports all
 /// errors at compile time; matching is infallible.
 ///
 /// Order: include words (all must be present when non-empty) → exclude words
 /// (any hit rejects) → regex (must match when present).
-pub fn passes(compiled: &CompiledFilter, title: &str) -> bool {
+pub fn reject_reason(compiled: &CompiledFilter, title: &str) -> Option<RejectReason> {
     let lower = title.to_lowercase();
-    if !compiled.include.is_empty() && !compiled.include.iter().all(|w| lower.contains(w)) {
-        return false;
+    if let Some(word) = compiled.include.iter().find(|w| !lower.contains(*w)) {
+        return Some(RejectReason::IncludeMissing { word: word.clone() });
     }
-    if compiled.exclude.iter().any(|w| lower.contains(w)) {
-        return false;
+    if let Some(word) = compiled.exclude.iter().find(|w| lower.contains(*w)) {
+        return Some(RejectReason::ExcludeMatched { word: word.clone() });
     }
-    match &compiled.regex {
-        Some(re) => re.is_match(title),
-        None => true,
+    if let Some(re) = &compiled.regex
+        && !re.is_match(title)
+    {
+        return Some(RejectReason::RegexNoMatch {
+            pattern: re.as_str().to_string(),
+        });
     }
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn pass(filter: &FeedFilter, title: &str) -> bool {
+    fn reject(filter: &FeedFilter, title: &str) -> Option<RejectReason> {
         compile(filter)
             .unwrap()
-            .map(|c| passes(&c, title))
-            .unwrap_or(true)
+            .and_then(|c| reject_reason(&c, title))
     }
 
     #[test]
     fn empty_filter_passes_everything() {
         let f = FeedFilter::default();
-        assert!(pass(&f, "[SubA] 虚构动画 - 01 [1080P].mp4"));
-        assert!(pass(&f, "anything at all"));
+        assert_eq!(reject(&f, "[SubA] 虚构动画 - 01 [1080P].mp4"), None);
+        assert_eq!(reject(&f, "anything at all"), None);
     }
 
     #[test]
@@ -102,9 +135,16 @@ mod tests {
             include: vec!["subA".into(), "subb".into()],
             ..Default::default()
         };
-        assert!(pass(&f, "[SubA] 虚构动画 - SubB 01 [1080P].mp4"));
-        assert!(!pass(&f, "[SubA] 虚构动画 - 01 [1080P].mp4")); // missing SubB
-        assert!(!pass(&f, "[SubC] 虚构动画 - 01 [1080P].mp4"));
+        assert_eq!(reject(&f, "[SubA] 虚构动画 - SubB 01 [1080P].mp4"), None);
+        // First missing word in list order (lowercased).
+        assert_eq!(
+            reject(&f, "[SubA] 虚构动画 - 01 [1080P].mp4"),
+            Some(RejectReason::IncludeMissing { word: "subb".into() })
+        );
+        assert_eq!(
+            reject(&f, "[SubC] 虚构动画 - 01 [1080P].mp4"),
+            Some(RejectReason::IncludeMissing { word: "suba".into() })
+        );
     }
 
     #[test]
@@ -113,10 +153,19 @@ mod tests {
             exclude: vec!["720p".into(), "sample".into()],
             ..Default::default()
         };
-        assert!(pass(&f, "[SubA] 虚构动画 - 01 [1080P].mp4"));
-        assert!(!pass(&f, "[SubA] 虚构动画 - 01 [720P].mp4"));
-        assert!(!pass(&f, "[SubA] 虚构动画 - 01 [1080P].SAMPLE.mp4"));
-        assert!(!pass(&f, "[SubA] 虚构动画 - 01 [1080P].Sample.mp4"));
+        assert_eq!(reject(&f, "[SubA] 虚构动画 - 01 [1080P].mp4"), None);
+        assert_eq!(
+            reject(&f, "[SubA] 虚构动画 - 01 [720P].mp4"),
+            Some(RejectReason::ExcludeMatched { word: "720p".into() })
+        );
+        assert_eq!(
+            reject(&f, "[SubA] 虚构动画 - 01 [1080P].SAMPLE.mp4"),
+            Some(RejectReason::ExcludeMatched { word: "sample".into() })
+        );
+        assert_eq!(
+            reject(&f, "[SubA] 虚构动画 - 01 [1080P].Sample.mp4"),
+            Some(RejectReason::ExcludeMatched { word: "sample".into() })
+        );
     }
 
     #[test]
@@ -125,8 +174,13 @@ mod tests {
             regex: Some(r"(?i)^\[ANi\].*1080P".into()),
             ..Default::default()
         };
-        assert!(pass(&f, "[ANi] 虚构动画 - 01 [1080P].mp4"));
-        assert!(!pass(&f, "[SubB] 虚构动画 - 01 [1080P].mp4"));
+        assert_eq!(reject(&f, "[ANi] 虚构动画 - 01 [1080P].mp4"), None);
+        assert_eq!(
+            reject(&f, "[SubB] 虚构动画 - 01 [1080P].mp4"),
+            Some(RejectReason::RegexNoMatch {
+                pattern: r"(?i)^\[ANi\].*1080P".into()
+            })
+        );
     }
 
     #[test]
@@ -136,10 +190,43 @@ mod tests {
             exclude: vec!["sample".into()],
             regex: Some(r"1080[Pp]".into()),
         };
-        assert!(pass(&f, "[SubA] 虚构动画 - 01 [1080P].mp4"));
-        assert!(!pass(&f, "[SubB] 虚构动画 - 01 [1080P].mp4")); // include fails
-        assert!(!pass(&f, "[SubA] 虚构动画 - 01 SAMPLE [1080P].mp4")); // exclude hits
-        assert!(!pass(&f, "[SubA] 虚构动画 - 01 [720P].mp4")); // regex fails
+        assert_eq!(reject(&f, "[SubA] 虚构动画 - 01 [1080P].mp4"), None);
+        assert_eq!(
+            reject(&f, "[SubB] 虚构动画 - 01 [1080P].mp4"),
+            Some(RejectReason::IncludeMissing { word: "suba".into() })
+        );
+        assert_eq!(
+            reject(&f, "[SubA] 虚构动画 - 01 SAMPLE [1080P].mp4"),
+            Some(RejectReason::ExcludeMatched { word: "sample".into() })
+        );
+        assert_eq!(
+            reject(&f, "[SubA] 虚构动画 - 01 [720P].mp4"),
+            Some(RejectReason::RegexNoMatch { pattern: "1080[Pp]".into() })
+        );
+    }
+
+    #[test]
+    fn reject_reason_identifies_first_trigger() {
+        let f = FeedFilter {
+            include: vec!["suba".into(), "1080p".into()],
+            exclude: vec!["sample".into()],
+            regex: Some(r"(?i)720p".into()),
+        };
+        // include fails first — first missing word in list order
+        assert_eq!(
+            reject(&f, "[SubB] 虚构动画 - 01 [1080P].mp4"),
+            Some(RejectReason::IncludeMissing { word: "suba".into() })
+        );
+        // exclude carries the matched word
+        assert_eq!(
+            reject(&f, "[SubA] 虚构动画 - 01 SAMPLE [1080P].mp4"),
+            Some(RejectReason::ExcludeMatched { word: "sample".into() })
+        );
+        // regex carries the original pattern
+        assert_eq!(
+            reject(&f, "[SubA] 虚构动画 - 01 [1080P].mp4"),
+            Some(RejectReason::RegexNoMatch { pattern: r"(?i)720p".into() })
+        );
     }
 
     #[test]
@@ -174,7 +261,10 @@ mod tests {
             exclude: vec!["a.b".into()],
             ..Default::default()
         };
-        assert!(!pass(&f, "[SubA] a.b 01.mp4"));
-        assert!(pass(&f, "[SubA] axb 01.mp4"));
+        assert_eq!(
+            reject(&f, "[SubA] a.b 01.mp4"),
+            Some(RejectReason::ExcludeMatched { word: "a.b".into() })
+        );
+        assert_eq!(reject(&f, "[SubA] axb 01.mp4"), None);
     }
 }
