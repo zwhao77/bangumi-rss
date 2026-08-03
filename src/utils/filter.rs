@@ -139,11 +139,15 @@ mod tests {
         // First missing word in list order (lowercased).
         assert_eq!(
             reject(&f, "[SubA] 虚构动画 - 01 [1080P].mp4"),
-            Some(RejectReason::IncludeMissing { word: "subb".into() })
+            Some(RejectReason::IncludeMissing {
+                word: "subb".into()
+            })
         );
         assert_eq!(
             reject(&f, "[SubC] 虚构动画 - 01 [1080P].mp4"),
-            Some(RejectReason::IncludeMissing { word: "suba".into() })
+            Some(RejectReason::IncludeMissing {
+                word: "suba".into()
+            })
         );
     }
 
@@ -156,15 +160,21 @@ mod tests {
         assert_eq!(reject(&f, "[SubA] 虚构动画 - 01 [1080P].mp4"), None);
         assert_eq!(
             reject(&f, "[SubA] 虚构动画 - 01 [720P].mp4"),
-            Some(RejectReason::ExcludeMatched { word: "720p".into() })
+            Some(RejectReason::ExcludeMatched {
+                word: "720p".into()
+            })
         );
         assert_eq!(
             reject(&f, "[SubA] 虚构动画 - 01 [1080P].SAMPLE.mp4"),
-            Some(RejectReason::ExcludeMatched { word: "sample".into() })
+            Some(RejectReason::ExcludeMatched {
+                word: "sample".into()
+            })
         );
         assert_eq!(
             reject(&f, "[SubA] 虚构动画 - 01 [1080P].Sample.mp4"),
-            Some(RejectReason::ExcludeMatched { word: "sample".into() })
+            Some(RejectReason::ExcludeMatched {
+                word: "sample".into()
+            })
         );
     }
 
@@ -193,15 +203,21 @@ mod tests {
         assert_eq!(reject(&f, "[SubA] 虚构动画 - 01 [1080P].mp4"), None);
         assert_eq!(
             reject(&f, "[SubB] 虚构动画 - 01 [1080P].mp4"),
-            Some(RejectReason::IncludeMissing { word: "suba".into() })
+            Some(RejectReason::IncludeMissing {
+                word: "suba".into()
+            })
         );
         assert_eq!(
             reject(&f, "[SubA] 虚构动画 - 01 SAMPLE [1080P].mp4"),
-            Some(RejectReason::ExcludeMatched { word: "sample".into() })
+            Some(RejectReason::ExcludeMatched {
+                word: "sample".into()
+            })
         );
         assert_eq!(
             reject(&f, "[SubA] 虚构动画 - 01 [720P].mp4"),
-            Some(RejectReason::RegexNoMatch { pattern: "1080[Pp]".into() })
+            Some(RejectReason::RegexNoMatch {
+                pattern: "1080[Pp]".into()
+            })
         );
     }
 
@@ -215,17 +231,23 @@ mod tests {
         // include fails first — first missing word in list order
         assert_eq!(
             reject(&f, "[SubB] 虚构动画 - 01 [1080P].mp4"),
-            Some(RejectReason::IncludeMissing { word: "suba".into() })
+            Some(RejectReason::IncludeMissing {
+                word: "suba".into()
+            })
         );
         // exclude carries the matched word
         assert_eq!(
             reject(&f, "[SubA] 虚构动画 - 01 SAMPLE [1080P].mp4"),
-            Some(RejectReason::ExcludeMatched { word: "sample".into() })
+            Some(RejectReason::ExcludeMatched {
+                word: "sample".into()
+            })
         );
         // regex carries the original pattern
         assert_eq!(
             reject(&f, "[SubA] 虚构动画 - 01 [1080P].mp4"),
-            Some(RejectReason::RegexNoMatch { pattern: r"(?i)720p".into() })
+            Some(RejectReason::RegexNoMatch {
+                pattern: r"(?i)720p".into()
+            })
         );
     }
 

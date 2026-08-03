@@ -223,7 +223,10 @@ fn fetch_feed_titles(url: &str) -> anyhow::Result<(String, Vec<(String, bool)>)>
         .iter()
         .map(|item| {
             let title = item.title().unwrap_or("").to_string();
-            (title.clone(), bangumi_rss::tokenizer::is_batch_title(&title))
+            (
+                title.clone(),
+                bangumi_rss::tokenizer::is_batch_title(&title),
+            )
         })
         .filter(|(t, _)| !t.is_empty())
         .collect();
@@ -231,12 +234,10 @@ fn fetch_feed_titles(url: &str) -> anyhow::Result<(String, Vec<(String, bool)>)>
 }
 
 fn arg_value(args: &[String], i: usize, flag: &str) -> String {
-    args.get(i)
-        .cloned()
-        .unwrap_or_else(|| {
-            eprintln!("❌ {flag} requires a value");
-            std::process::exit(2);
-        })
+    args.get(i).cloned().unwrap_or_else(|| {
+        eprintln!("❌ {flag} requires a value");
+        std::process::exit(2);
+    })
 }
 
 fn print_usage() {
