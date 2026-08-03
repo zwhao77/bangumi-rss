@@ -129,16 +129,16 @@ aria2 对于 BitTorrent 种子存在以下已知限制：
   "name": "示例番剧",
   "season": 1,
   "filter": {
-    "include_regex": ["SubA|SubB"],
-    "exclude_regex": ["720P"],
-    "exclude_substrings": ["sample"]
+    "include": ["SubA", "SubB"],
+    "exclude": ["720p", "sample"],
+    "regex": "(?i)^\\[ANi\\].*1080P"
   }
 }
 ```
 
-- `include_regex`（可选）：非空时标题必须至少命中其中一个模式。
-- `exclude_regex`（可选）：标题命中任一模式即跳过。
-- `exclude_substrings`（可选）：标题包含任一字符串（不区分大小写）即跳过。
+- `include`（可选）：白名单词汇——非空时标题必须至少包含其中一个（大小写不敏感的子串，无需正则转义）。
+- `exclude`（可选）：黑名单词汇——标题包含任一词汇即跳过。
+- `regex`（可选）：高级扩展——设置后标题必须匹配该纯 Rust 正则（不支持环视/反向引用，`(?i)` 可用）。
 - 所有字段均可选；空过滤器表示全部接受。通过 `PUT /api/feeds/{id}` 发送同样的对象即可更新；省略 `filter` 字段则保留当前过滤器。
 
 ## 通知

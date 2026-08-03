@@ -354,7 +354,7 @@ fn reduce_user_confirm(
     let exists = state.feeds.contains_key(&feed_id);
     if exists {
         if let Some(f) = &filter
-            && let Err(e) = crate::utils::filter::CompiledFilter::compile(f)
+            && let Err(e) = crate::utils::filter::CompiledFilter::validate(f)
         {
             let _ = reply_tx.send(ApiResult::Err {
                 code: http_code::BAD_REQUEST,
@@ -397,7 +397,7 @@ fn reduce_confirm_feed(
         });
         return (state.clone(), vec![]);
     }
-    if let Err(e) = crate::utils::filter::CompiledFilter::compile(&filter) {
+    if let Err(e) = crate::utils::filter::CompiledFilter::validate(&filter) {
         let _ = reply_tx.send(ApiResult::Err {
             code: http_code::BAD_REQUEST,
             message: format!("invalid filter: {e}"),
@@ -901,7 +901,7 @@ mod tests {
                 confirmed: true,
                 bangumi_info: None,
                 filter: FeedFilter {
-                    exclude_substrings: vec!["SAMPLE".into()],
+                    exclude: vec!["SAMPLE".into()],
                     ..Default::default()
                 },
             },
@@ -963,7 +963,7 @@ mod tests {
             1,
             None,
             FeedFilter {
-                include_regex: vec!["(".into()],
+                regex: Some("(".into()),
                 ..Default::default()
             },
             reply_tx,
@@ -997,7 +997,7 @@ mod tests {
                 confirmed: true,
                 bangumi_info: None,
                 filter: FeedFilter {
-                    exclude_substrings: vec!["SAMPLE".into()],
+                    exclude: vec!["SAMPLE".into()],
                     ..Default::default()
                 },
             },
@@ -1009,7 +1009,7 @@ mod tests {
             reduce_user_confirm(&state, feed_id, "虚构动画".into(), 1, None, None, reply_tx);
         assert!(effects.is_empty());
         let feed = new_state.feeds.get(&feed_id).unwrap();
-        assert_eq!(feed.filter.exclude_substrings, vec!["SAMPLE".to_string()]);
+        assert_eq!(feed.filter.exclude, vec!["SAMPLE".to_string()]);
 
         // Update with an explicit filter → replaced.
         let (reply_tx, _) = crossbeam_channel::bounded(1);
@@ -1023,6 +1023,6 @@ mod tests {
             reply_tx,
         );
         let feed = new_state.feeds.get(&feed_id).unwrap();
-        assert!(feed.filter.exclude_substrings.is_empty());
+        assert!(feed.filter.exclude.is_empty());
     }
 }

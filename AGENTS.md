@@ -117,7 +117,7 @@ AnimeIdentity { name, season }
 - `AppState.seen_urls: HashSet<String>` — persisted URL dedup, survives restarts.
 - `EpisodeRecord.library_path` — populated after file move to media library.
 - `Feed.bangumi_info: Option<BangumiInfo>` — attached on confirm if preview fetched it; persisted in `state.json`.
-- `Feed.filter: FeedFilter` — per-feed include/exclude regex + `exclude_substrings`; validated on create/update, applied to RSS titles at fetch time (empty = accept all). Persisted via `#[serde(default)]`, so old `state.json` loads unchanged.
+- `Feed.filter: FeedFilter` — per-feed whitelist/blacklist words (`include`/`exclude`, case-insensitive substrings) + optional advanced `regex`; validated on create/update, applied to RSS titles at fetch time (empty = accept all). Persisted via `#[serde(default)]`, so old `state.json` loads unchanged.
 - Batch torrents (`01-12`, `01~12`) are rejected at RSS fetch time.
 
 ## Feed Confirmation Pipeline (preview + subscribe)

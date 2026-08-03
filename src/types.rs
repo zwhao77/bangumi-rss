@@ -59,21 +59,25 @@ pub struct FeedInfo {
 
 /// Per-feed torrent title filter.
 ///
-/// Applied to RSS item titles before a torrent is added:
-/// - `include_regex` (non-empty): the title must match at least one pattern.
-/// - `exclude_regex`: the title matching any pattern is skipped.
-/// - `exclude_substrings`: the title containing any substring (case-insensitive)
-///   is skipped — the "simple" way to exclude e.g. a specific sub group.
+/// Applied to RSS item titles before a torrent is added. Three independent
+/// rules, all optional, evaluated in order:
+/// - `include` (whitelist words): non-empty → the title must contain at least
+///   one word (case-insensitive substring).
+/// - `exclude` (blacklist words): the title containing any word is skipped
+///   (case-insensitive substring).
+/// - `regex` (advanced): when present, the title must match this pure Rust
+///   regex (e.g. complex patterns beyond plain words).
 ///
-/// All fields are optional; an all-empty filter accepts every title.
+/// Storage keeps the raw words only — no user-facing regex is generated from
+/// them; `regex` is an explicit opt-in escape hatch for advanced users.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FeedFilter {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub include_regex: Vec<String>,
+    pub include: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub exclude_regex: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub exclude_substrings: Vec<String>,
+    pub exclude: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub regex: Option<String>,
 }
 
 /// An item parsed from an RSS feed.

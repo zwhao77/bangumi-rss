@@ -132,16 +132,18 @@ them — there is no episode-level dedup by design.
   "name": "示例番剧",
   "season": 1,
   "filter": {
-    "include_regex": ["SubA|SubB"],
-    "exclude_regex": ["720P"],
-    "exclude_substrings": ["sample"]
+    "include": ["SubA", "SubB"],
+    "exclude": ["720p", "sample"],
+    "regex": "(?i)^\\[ANi\\].*1080P"
   }
 }
 ```
 
-- `include_regex` (optional): non-empty → the title must match at least one pattern.
-- `exclude_regex` (optional): the title matching any pattern is skipped.
-- `exclude_substrings` (optional): the title containing any substring (case-insensitive) is skipped.
+- `include` (optional): whitelist words — non-empty → the title must contain at
+  least one word (case-insensitive substring, no regex escaping needed).
+- `exclude` (optional): blacklist words — the title containing any word is skipped.
+- `regex` (optional): advanced escape hatch — when set, the title must match this
+  pure Rust regex (no lookaround/backreferences; `(?i)` works).
 - All fields optional; an empty filter accepts everything. Send the same object
   via `PUT /api/feeds/{id}` to update; omitting `filter` keeps the current one.
 
