@@ -47,7 +47,7 @@ pub fn serve_file_range(
     // Empty file → always 200 with empty body.
     if file_size == 0 {
         return Response {
-            status_code: 200,
+            status_code: http_code::OK,
             headers: vec![
                 ("Content-Type".into(), content_type.into()),
                 ("Accept-Ranges".into(), "bytes".into()),
@@ -74,7 +74,7 @@ pub fn serve_file_range(
             };
             log::info!("→ 200 OK ({content_type}, {file_size} bytes)");
             Response {
-                status_code: 200,
+                status_code: http_code::OK,
                 headers: vec![
                     ("Content-Type".into(), content_type.into()),
                     ("Accept-Ranges".into(), "bytes".into()),
@@ -104,7 +104,7 @@ pub fn serve_file_range(
             log::info!("→ 206 bytes {start}-{end}/{file_size} ({content_type})");
 
             Response {
-                status_code: 206,
+                status_code: http_code::PARTIAL_CONTENT,
                 headers: vec![
                     ("Content-Type".into(), content_type.into()),
                     ("Content-Range".into(), content_range.into()),

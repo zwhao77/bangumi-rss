@@ -17,12 +17,16 @@ pub enum ApiResult<T> {
     Err { code: u16, message: String },
 }
 
-/// HTTP status codes used in `ApiResult::Err.code` and `ApiError`.
+/// HTTP status codes used across the server layer.
 pub mod http_code {
+    pub const OK: u16 = 200;
+    pub const CREATED: u16 = 201;
+    pub const ACCEPTED: u16 = 202;
+    pub const PARTIAL_CONTENT: u16 = 206;
     pub const BAD_REQUEST: u16 = 400;
     pub const UNAUTHORIZED: u16 = 401;
-    pub const METHOD_NOT_ALLOWED: u16 = 405;
     pub const NOT_FOUND: u16 = 404;
+    pub const METHOD_NOT_ALLOWED: u16 = 405;
     pub const RANGE_NOT_SATISFIABLE: u16 = 416;
     pub const INTERNAL: u16 = 500;
     pub const SERVICE_UNAVAILABLE: u16 = 503;

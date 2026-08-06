@@ -1,8 +1,8 @@
-//! Route handlers — pure functions that take trait objects and return responses.
+//! Route handlers — produce `rouille::Response`s.
 //!
-//! Each handler receives the dependencies it needs (channels, service traits, etc.)
-//! and produces a `rouille::Response`.  No I/O is performed directly — all side
-//! effects go through the injected traits.
+//! Query-backed handlers delegate to the logic thread via events with a reply
+//! channel; preview, Bangumi, static assets, and file streaming perform their
+//! I/O directly by design (see API.md §5).
 
 use crossbeam_channel::{RecvTimeoutError, Sender};
 use rouille::{Request, Response};
@@ -12,7 +12,7 @@ use std::time::Duration;
 use crate::core::event::Event;
 use crate::services::server::range::{resolve_range, serve_file_range};
 use crate::services::server::utils::{
-    api_err_response, is_valid_rss_url, json_data, problem_response,
+    api_err_response, api_result_response, is_valid_rss_url, problem_response,
 };
 use crate::traits::FileOps;
 use crate::types::{http_code, problem_type, ApiResult, BangumiInfo};
@@ -74,15 +74,6 @@ impl From<HandlerError> for Response {
     }
 }
 
-impl<T: serde::Serialize> From<ApiResult<T>> for Response {
-    fn from(result: ApiResult<T>) -> Self {
-        match result {
-            ApiResult::OK { value } => json_data(200, &value),
-            ApiResult::Err { code, message } => api_err_response(code, &message),
-        }
-    }
-}
-
 fn mime_type(path: &str) -> &'static str {
     let ext = path.rsplit('.').next().unwrap_or("").to_lowercase();
     match ext.as_str() {
@@ -135,7 +126,7 @@ fn query_api_result<T: serde::Serialize>(
     tx: &Sender<Event>,
     event: impl FnOnce(Sender<ApiResult<T>>) -> Event,
 ) -> Response {
-    query_api_result_status(tx, event, 200)
+    query_api_result_status(tx, event, http_code::OK)
 }
 
 /// Like [`query_api_result`], but uses `ok_status` for successful replies
@@ -146,8 +137,7 @@ fn query_api_result_status<T: serde::Serialize>(
     ok_status: u16,
 ) -> Response {
     match query_result(tx, event) {
-        Ok(ApiResult::OK { value }) => json_data(ok_status, &value),
-        Ok(ApiResult::Err { code, message }) => api_err_response(code, &message),
+        Ok(result) => api_result_response(result, ok_status),
         Err(e) => e.into(),
     }
 }
@@ -158,7 +148,7 @@ fn fire_event(tx: &Sender<Event>, event: Event, msg: &str) -> Response {
     match tx.send(event) {
         Ok(()) => {
             let body = serde_json::json!({"data": null, "message": msg}).to_string();
-            Response::from_data("application/json", body).with_status_code(202)
+            Response::from_data("application/json", body).with_status_code(http_code::ACCEPTED)
         }
         Err(_) => HandlerError::ChannelClosed.into(),
     }
@@ -195,19 +185,26 @@ pub fn handle_preview(request: &Request) -> Response {
     };
     let url = json["url"].as_str().unwrap_or("");
     if !is_valid_rss_url(url) {
-        return ApiResult::<crate::types::FeedPreview>::Err {
-            code: http_code::BAD_REQUEST,
-            message: "invalid URL".into(),
-        }
-        .into();
+        return api_result_response(
+            ApiResult::<crate::types::FeedPreview>::Err {
+                code: http_code::BAD_REQUEST,
+                message: "invalid URL".into(),
+            },
+            http_code::OK,
+        );
     }
     match preview::fetch_feed_preview(url) {
-        Ok(preview) => ApiResult::<crate::types::FeedPreview>::OK { value: preview }.into(),
-        Err(e) => ApiResult::<crate::types::FeedPreview>::Err {
-            code: http_code::INTERNAL,
-            message: format!("preview failed: {e}"),
-        }
-        .into(),
+        Ok(preview) => api_result_response(
+            ApiResult::<crate::types::FeedPreview>::OK { value: preview },
+            http_code::OK,
+        ),
+        Err(e) => api_result_response(
+            ApiResult::<crate::types::FeedPreview>::Err {
+                code: http_code::INTERNAL,
+                message: format!("preview failed: {e}"),
+            },
+            http_code::OK,
+        ),
     }
 }
 
@@ -240,7 +237,7 @@ pub fn handle_feed_create(request: &Request, tx: &Sender<Event>) -> Response {
             filter,
             reply_tx,
         },
-        201,
+        http_code::CREATED,
     )
 }
 
@@ -307,12 +304,14 @@ pub fn handle_bangumi_subject(id_str: &str) -> Response {
         Err(_) => return HandlerError::BadRequest("invalid id".into()).into(),
     };
     match crate::services::bangumi::detail(id) {
-        Ok(Some(info)) => ApiResult::OK { value: info }.into(),
-        Ok(None) => ApiResult::<BangumiInfo>::Err {
-            code: http_code::NOT_FOUND,
-            message: "not found".into(),
-        }
-        .into(),
+        Ok(Some(info)) => api_result_response(ApiResult::OK { value: info }, http_code::OK),
+        Ok(None) => api_result_response(
+            ApiResult::<BangumiInfo>::Err {
+                code: http_code::NOT_FOUND,
+                message: "not found".into(),
+            },
+            http_code::OK,
+        ),
         Err(e) => HandlerError::Internal {
             client: "upstream error".into(),
             detail: format!("bangumi detail failed: {e}"),
@@ -357,7 +356,7 @@ pub fn handle_bangumi_search(request: &Request) -> Response {
             }
         }
     };
-    result.into()
+    api_result_response(result, http_code::OK)
 }
 
 pub fn handle_health(tx: &Sender<Event>) -> Response {

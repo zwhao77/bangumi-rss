@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use rouille::{Request, Response};
 
-use crate::types::{http_code, problem_type, Problem};
+use crate::types::{http_code, problem_type, ApiResult, Problem};
 
 /// Media type for RFC 9457 Problem Details responses.
 pub const PROBLEM_JSON: &str = "application/problem+json";
@@ -82,6 +82,17 @@ pub fn api_err_response(code: u16, message: &str) -> Response {
     }
     let (type_uri, title) = problem_type_for_status(code);
     problem_response(code, type_uri, title, message)
+}
+
+/// Map an internal `ApiResult` to a contract response: `OK` → `{"data": value}`
+/// with `ok_status`; `Err` → RFC 9457 Problem Details. The single conversion
+/// point for all `ApiResult`-backed JSON endpoints (fire-and-forget actions
+/// build their own `202` body — see API.md §3).
+pub fn api_result_response<T: Serialize>(result: ApiResult<T>, ok_status: u16) -> Response {
+    match result {
+        ApiResult::OK { value } => json_data(ok_status, &value),
+        ApiResult::Err { code, message } => api_err_response(code, &message),
+    }
 }
 
 /// Known routes as `(path segments, allowed methods)`. `"{}"` matches any
