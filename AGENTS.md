@@ -1,13 +1,13 @@
 # AGENTS.md — bangumi-rss
 
-> Anime RSS auto-downloader. Single Rust binary, ~5 MB memory, 96 tests (server 25, notify 14, logic 12, tokenizer 8, handler 8, rss 6, config 6, bangumi 5, dl_command 5, executor 3, fetch_pool 2, timer 1, aria2 1).
+> Anime RSS auto-downloader. Single Rust binary, ~5 MB memory, 109 tests (server 25, notify 14, logic 16, tokenizer 8, filter 9, handler 8, rss 6, config 6, bangumi 5, dl_command 5, executor 3, fetch_pool 2, timer 1, aria2 1).
 
 ## Build & Run
 
 ```bash
 cargo build                  # debug build
 cargo build --release        # release build
-cargo test                   # run all tests (96)
+cargo test                   # run all tests (109)
 cargo run                    # run directly (env vars below)
 ```
 
@@ -86,7 +86,8 @@ Event Sources (timers, server)
 | `services/downloader/qbittorrent.rs` | `QbittorrentDownloader` — Web API client, HTTP Basic Auth (v5.0+) |
 | `services/downloader/transmission.rs` | `TransmissionDownloader` — JSON-RPC 2.0 client with CSRF session handling |
 | `services/downloader/mock.rs` | `MockDownloader`, `MockFileSystem` (all use `Mutex` for thread safety) |
-| `utils/handler.rs` | Pure post‑download logic: `resolve_files`, toolkit functions (8 tests) |
+| `utils/handler.rs` | Pure post-download logic: `resolve_files`, toolkit functions (8 tests) |
+| `utils/filter.rs` | Per-feed torrent title filter: include/exclude words (AND/OR substrings) + optional regex + `reject_reason` (9 tests) |
 | `utils/tokenizer.rs` | Regex-based torrent title parser + batch detection (8 tests) |
 | `utils/rss.rs` | Pure RSS XML parsing: `parse_rss()`, `parse_preview()` (6 tests) |
 | `utils/notify.rs` | Webhook renderer: bark/gotify/serverchan templates (14 tests) |
@@ -114,7 +115,12 @@ AnimeIdentity { name, season }
 ```
 
 - `AppState.seen_urls: HashSet<String>` — persisted URL dedup, survives restarts.
-- `EpisodeRecord.library_path` — populated after file move to media library.- `Feed.bangumi_info: Option<BangumiInfo>` — attached on confirm if preview fetched it; persisted in `state.json`.- Batch torrents (`01-12`, `01~12`) are rejected at RSS fetch time.
+- `EpisodeRecord.library_path` — populated after file move to media library.
+- `Feed.bangumi_info: Option<BangumiInfo>` — attached on confirm if preview fetched it; persisted in `state.json`.
+- `Feed.filter: FeedFilter` — per-feed whitelist/blacklist words (`include`/`exclude`, case-insensitive substrings; include = AND, exclude = OR) + optional advanced `regex`; validated on create/update, applied to RSS titles at fetch time (empty = accept all). Persisted via `#[serde(default)]`, so old `state.json` loads unchanged.
+- Batch torrents (`01-12`, `01~12`) are rejected at RSS fetch time.
+- **TODO**: The RSS title heuristic is only an early interception, not a safety boundary — a batch torrent that slips through is split per-file at completion (`resolve_files`), but `tracker` holds one `EpisodeRecord` per infohash, so each `EpisodeMovedToLibrary` overwrites `key.episode`/`library_path` (last file wins) and episodes already in the library can be re-downloaded via later single-episode URLs. Next step: model multi-episode torrents properly (multiple library paths or multiple records), skip file moves whose target already exists, and handle false positives such as double-episode files (`S01E01-02`) that the current regex wrongly rejects.
+- **TODO**: Mock downloader can't exercise the completion path end-to-end — `MockFileSystem` is a stub (`exists` only checks an empty `existing` set, `move_file` only records moves) and `MockDownloader`/`MockFileSystem` are separate instances, so `list_files` results never exist in the mock FS (`fallback: file not found`, tracker stuck at `Downloading`). Before testing the multi-episode TODO without a real downloader, share one `MockFileSystem` between downloader and `FileOps`, register placeholder files on `add_*`, and make `move_file` actually move entries (keeping `moves` for existing assertions).
 
 ## Feed Confirmation Pipeline (preview + subscribe)
 
@@ -124,8 +130,8 @@ POST /api/feeds/preview
     → FeedPreview { suggested_name, bangumi_info: Option<BangumiInfo> }
   → JSON response (with cover image URL, rating, tags for web UI)
 
-POST /api/feeds/confirm { name, season, bangumi_info? }
-  → Event::ConfirmFeed → logic: Feed { bangumi_info: Some(...) }
+POST /api/feeds { url, name, season, bangumi_info?, filter? }
+  → Event::CreateFeed → logic: Feed { bangumi_info: Some(...), filter }
     → RSS tick → download pipeline starts immediately
 ```
 
@@ -134,7 +140,7 @@ POST /api/feeds/confirm { name, season, bangumi_info? }
 ```
 RssTickAll → Effect::FetchRss
   → executor: rss.fetch() → Event::RssItemsFetched
-    → logic: URL dedup (seen_urls) + batch rejection → Effect::AddTorrent
+    → logic: URL dedup (seen_urls) + batch rejection + per-feed title filter → Effect::AddTorrent
       → executor: downloader.add_uri() → Event::DownloadStarted
         → logic: tracker ← EpisodeRecord { infohash, torrent_url, ... }
 
@@ -152,11 +158,11 @@ PollDownloader (every 30s) → Effect::PollCompleted
 |---|---|---|
 | `GET` | `/` | Two-step feed confirmation UI |
 | `GET` | `/style.css` | Stylesheet |
-| `POST` | `/api/feeds` | Create feed (`{ url, name, season, bangumi_info? }`) |
+| `POST` | `/api/feeds` | Create feed (`{ url, name, season, bangumi_info?, filter? }`) |
 | `POST` | `/api/feeds/preview` | Submit RSS URL → get structured preview |
 | `POST` | `/api/feeds/refresh` | Trigger immediate RSS refresh |
 | `GET` | `/api/feeds` | List all feeds |
-| `PUT` | `/api/feeds/{id}` | Update feed (name/season/bangumi_info) |
+| `PUT` | `/api/feeds/{id}` | Update feed (name/season/bangumi_info/filter; omit filter to keep) |
 | `DELETE` | `/api/feeds/{id}` | Remove feed |
 | `GET` | `/api/files/{infohash}` | Stream episode file (Range support) |
 | `GET` | `/api/downloads` | List cached downloads |
@@ -200,7 +206,7 @@ Uses the **legacy (no-auth) API** via `services/bangumi.rs`:
 - **Error handling**: `anyhow::Result` throughout, `?` operator
 - **Channels**: `crossbeam_channel::bounded(256)` for all thread communication
 - **Services behind traits**: All I/O is behind `Arc<dyn Trait>` for testability
-- **Testing**: 96 tests total — server (25), notify (14), logic (12), tokenizer (8), handler (8), rss (6), config (6), bangumi (5), dl_command (5), executor (3), fetch_pool (2), timer (1), aria2 (1)
+- **Testing**: 109 tests total — server (25), notify (14), logic (16), tokenizer (8), filter (9), handler (8), rss (6), config (6), bangumi (5), dl_command (5), executor (3), fetch_pool (2), timer (1), aria2 (1)
 - **No async runtime** — everything is sync with OS threads and channels
 - **Single‑threaded services**: `Aria2Downloader` is only accessed from executor thread
 - **Timer**: `TimerManager` — `add(interval, callback → bool)`, returns `false` to self‑remove, graceful shutdown via `AtomicBool`

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
-use crate::types::{AnimeIdentity, BangumiInfo, EpisodeRecord, RecordStatus};
+use crate::types::{AnimeIdentity, BangumiInfo, EpisodeRecord, FeedFilter, RecordStatus};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Feed {
@@ -13,6 +13,9 @@ pub struct Feed {
     /// Bangumi metadata — fetched once on confirm, persisted in state.json.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bangumi_info: Option<BangumiInfo>,
+    /// Per-feed torrent title filter (empty = accept everything).
+    #[serde(default)]
+    pub filter: FeedFilter,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
@@ -65,12 +68,16 @@ impl AppState {
         name: String,
         season: u8,
         bangumi_info: Option<BangumiInfo>,
+        filter: Option<FeedFilter>,
     ) -> Self {
         if let Some(f) = self.feeds.get_mut(&id) {
             f.anime.name = name;
             f.anime.season = season;
             f.confirmed = true;
             f.bangumi_info = bangumi_info;
+            if let Some(filter) = filter {
+                f.filter = filter;
+            }
         }
         self
     }

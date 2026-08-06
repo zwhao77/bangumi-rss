@@ -5,6 +5,7 @@
 //! - `handler` — post-download file resolution
 //! - `preview` — RSS + Bangumi preview helper
 
+pub mod filter;
 pub mod handler;
 pub mod notify;
 pub mod preview;

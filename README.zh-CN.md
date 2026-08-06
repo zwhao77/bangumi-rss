@@ -87,7 +87,6 @@ DOWNLOAD_DIR=/downloads LIBRARY_DIR=/anime ./target/release/bangumi-rss
 | `QUEUE_CAPACITY` | `512` | Worker pool 队列容量 |
 | `BIND_ADDR` | `127.0.0.1` | HTTP 监听地址（`0.0.0.0` 监听所有接口） |
 | `MAX_CONNECTIONS` | `16` | Rouille 线程池连接数 |
-| `MAX_QUEUE` | `0` | HTTP 连接队列上限 |
 | `AUTH_USERNAME` | — | Basic Auth 用户名（留空不启用） |
 | `AUTH_PASSWORD` | — | Basic Auth 密码 |
 | `RUST_LOG` | `info` | 日志级别（设为 `warn` 可减少输出） |
@@ -119,6 +118,28 @@ aria2 对于 BitTorrent 种子存在以下已知限制：
 > - **qBittorrent** 在现代网络下通常是更好的默认选择：功能更全，对等/连接处理（含末尾块 endgame 优化）通常更快；代价是内存占用更高。
 > - **Transmission** 适合低内存设备（路由器 / NAS）：简单、文档完善；但功能较少，某些 peer/末尾块场景可能较慢。
 > - **aria2** 最适合直链（HTTP）下载；BT 场景缺少 rename/move API，且完成后即停止做种。
+
+## 种子过滤
+
+每个订阅都可以带一个标题过滤器，在 RSS 条目进入下载前生效。适合同一集被多个字幕组发布、而你只想要其中一部分的场景——按设计**不做**按集数去重。
+
+```json
+{
+  "url": "https://mikanani.me/RSS/Classic/...",
+  "name": "示例番剧",
+  "season": 1,
+  "filter": {
+    "include": ["SubA", "SubB"],
+    "exclude": ["720p", "sample"],
+    "regex": "(?i)^\\[ANi\\].*1080P"
+  }
+}
+```
+
+- `include`（可选）：白名单词汇——非空时标题必须包含全部词汇（AND 逻辑，与 qBittorrent 的 Must Contain 一致；大小写不敏感的子串，无需正则转义）。如需 OR 逻辑请使用 `regex` 配合 `|`。
+- `exclude`（可选）：黑名单词汇——标题包含任一词汇即跳过。
+- `regex`（可选）：高级扩展——设置后标题必须匹配该纯 Rust 正则（不支持环视/反向引用，`(?i)` 可用）。
+- 所有字段均可选；空过滤器表示全部接受。通过 `PUT /api/feeds/{id}` 发送同样的对象即可更新；省略 `filter` 字段则保留当前过滤器。
 
 ## 通知
 

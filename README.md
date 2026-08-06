@@ -88,7 +88,6 @@ Open `http://localhost:7893` in browser to subscribe and manage.
 | `QUEUE_CAPACITY` | `512` | Worker pool job queue capacity |
 | `BIND_ADDR` | `127.0.0.1` | HTTP server bind address (`0.0.0.0` for all interfaces) |
 | `MAX_CONNECTIONS` | `16` | Rouille thread-pool connection count |
-| `MAX_QUEUE` | `0` | HTTP connection queue limit |
 | `AUTH_USERNAME` | — | Basic Auth username (empty = no auth) |
 | `AUTH_PASSWORD` | — | Basic Auth password |
 | `RUST_LOG` | `info` | Log level (`warn` to quieten, `debug` for verbose) |
@@ -120,6 +119,34 @@ aria2 has the following known limitations with BitTorrent torrents:
 > - **qBittorrent** is often the better default on modern networks: feature-rich, and its peer/connection handling (including end-game last-piece optimization) tends to be faster. The cost is higher memory usage.
 > - **Transmission** suits low-memory devices (routers / NAS): simple and well-documented. It's less feature-rich and may be slower in some peer/end-game scenarios.
 > - **aria2** is best for direct (HTTP) downloads; for BitTorrent it lacks rename/move APIs and stops seeding after completion.
+
+## Torrent Filtering
+
+Each feed can carry a title filter, applied to RSS items before download. Useful
+when the same episode is released by multiple groups and you only want some of
+them — there is no episode-level dedup by design.
+
+```json
+{
+  "url": "https://mikanani.me/RSS/Classic/...",
+  "name": "示例番剧",
+  "season": 1,
+  "filter": {
+    "include": ["SubA", "SubB"],
+    "exclude": ["720p", "sample"],
+    "regex": "(?i)^\\[ANi\\].*1080P"
+  }
+}
+```
+
+- `include` (optional): whitelist words — non-empty → the title must contain
+  **all** words (ANDed, like qBittorrent's Must Contain; case-insensitive
+  substrings, no regex escaping needed). Use `regex` with `|` for OR.
+- `exclude` (optional): blacklist words — the title containing any word is skipped.
+- `regex` (optional): advanced escape hatch — when set, the title must match this
+  pure Rust regex (no lookaround/backreferences; `(?i)` works).
+- All fields optional; an empty filter accepts everything. Send the same object
+  via `PUT /api/feeds/{id}` to update; omitting `filter` keeps the current one.
 
 ## Notifications
 

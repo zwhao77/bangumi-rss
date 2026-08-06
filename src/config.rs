@@ -72,8 +72,6 @@ pub struct Config {
     pub bind_addr: String,
     #[envconfig(from = "MAX_CONNECTIONS", default = "16")]
     pub max_connections: u32,
-    #[envconfig(from = "MAX_QUEUE", default = "0")]
-    pub max_queue: u32,
 
     #[envconfig(from = "WEBHOOK_URL", default = "")]
     pub webhook_url: String,

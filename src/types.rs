@@ -53,6 +53,31 @@ pub struct FeedInfo {
     pub season: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bangumi_info: Option<BangumiInfo>,
+    /// Per-feed torrent title filter (empty = no filtering).
+    pub filter: FeedFilter,
+}
+
+/// Per-feed torrent title filter.
+///
+/// Applied to RSS item titles before a torrent is added. Three independent
+/// rules, all optional, evaluated in order:
+/// - `include` (whitelist words): non-empty → the title must contain all
+///   words (case-insensitive substrings; AND logic).
+/// - `exclude` (blacklist words): the title containing any word is skipped
+///   (case-insensitive substring).
+/// - `regex` (advanced): when present, the title must match this pure Rust
+///   regex (e.g. complex patterns beyond plain words).
+///
+/// Storage keeps the raw words only — no user-facing regex is generated from
+/// them; `regex` is an explicit opt-in escape hatch for advanced users.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeedFilter {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub include: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub regex: Option<String>,
 }
 
 /// An item parsed from an RSS feed.

@@ -189,12 +189,17 @@ pub fn handle_feed_create(request: &Request, tx: &Sender<Event>) -> Response {
     let bangumi_info: Option<BangumiInfo> = confirm
         .get("bangumi_info")
         .and_then(|v| serde_json::from_value(v.clone()).ok());
+    let filter: crate::types::FeedFilter = confirm
+        .get("filter")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
 
-    query_api_result(tx, |reply_tx| Event::ConfirmFeed {
+    query_api_result(tx, |reply_tx| Event::CreateFeed {
         url,
         name,
         season,
         bangumi_info,
+        filter,
         reply_tx,
     })
 }
@@ -213,12 +218,17 @@ pub fn handle_feed_update(id: &str, request: &Request, tx: &Sender<Event>) -> Re
     let bangumi_info: Option<BangumiInfo> = update
         .get("bangumi_info")
         .and_then(|v| serde_json::from_value(v.clone()).ok());
+    // Absent / null / unparseable → None → keep the feed's current filter.
+    let filter: Option<crate::types::FeedFilter> = update
+        .get("filter")
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
 
-    query_api_result(tx, |reply_tx| Event::UserConfirm {
+    query_api_result(tx, |reply_tx| Event::UpdateFeed {
         feed_id,
         name,
         season,
         bangumi_info,
+        filter,
         reply_tx,
     })
 }

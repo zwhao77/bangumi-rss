@@ -364,6 +364,7 @@ mod tests {
                 anime: anime.clone(),
                 confirmed: true,
                 bangumi_info: None,
+                filter: Default::default(),
             },
         );
         state.tracker.insert(
