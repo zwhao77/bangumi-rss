@@ -154,6 +154,8 @@ PollDownloader (every 30s) → Effect::PollCompleted
 
 ## API Endpoints
 
+Contract: see [API.md](API.md) — envelope, status codes, auth, and schemas.
+
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/` | Two-step feed confirmation UI |
