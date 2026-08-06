@@ -49,8 +49,8 @@ pub enum Event {
     /// and filesystem fallback failed).
     EpisodeHandleFailed { infohash: String },
 
-    /// User confirmed anime name + season via web page.
-    UserConfirm {
+    /// API: update an existing feed's name/season/bangumi_info/filter.
+    UpdateFeed {
         feed_id: Uuid,
         name: String,
         season: u8,
@@ -60,8 +60,8 @@ pub enum Event {
         reply_tx: crossbeam_channel::Sender<ApiResult<String>>,
     },
 
-    /// API: confirm a feed subscription with resolved anime info.
-    ConfirmFeed {
+    /// API: create a feed subscription from url + resolved anime info.
+    CreateFeed {
         url: String,
         name: String,
         season: u8,

@@ -130,8 +130,8 @@ POST /api/feeds/preview
     → FeedPreview { suggested_name, bangumi_info: Option<BangumiInfo> }
   → JSON response (with cover image URL, rating, tags for web UI)
 
-POST /api/feeds/confirm { name, season, bangumi_info? }
-  → Event::ConfirmFeed → logic: Feed { bangumi_info: Some(...) }
+POST /api/feeds { url, name, season, bangumi_info?, filter? }
+  → Event::CreateFeed → logic: Feed { bangumi_info: Some(...), filter }
     → RSS tick → download pipeline starts immediately
 ```
 
@@ -158,11 +158,11 @@ PollDownloader (every 30s) → Effect::PollCompleted
 |---|---|---|
 | `GET` | `/` | Two-step feed confirmation UI |
 | `GET` | `/style.css` | Stylesheet |
-| `POST` | `/api/feeds` | Create feed (`{ url, name, season, bangumi_info? }`) |
+| `POST` | `/api/feeds` | Create feed (`{ url, name, season, bangumi_info?, filter? }`) |
 | `POST` | `/api/feeds/preview` | Submit RSS URL → get structured preview |
 | `POST` | `/api/feeds/refresh` | Trigger immediate RSS refresh |
 | `GET` | `/api/feeds` | List all feeds |
-| `PUT` | `/api/feeds/{id}` | Update feed (name/season/bangumi_info) |
+| `PUT` | `/api/feeds/{id}` | Update feed (name/season/bangumi_info/filter; omit filter to keep) |
 | `DELETE` | `/api/feeds/{id}` | Remove feed |
 | `GET` | `/api/files/{infohash}` | Stream episode file (Range support) |
 | `GET` | `/api/downloads` | List cached downloads |

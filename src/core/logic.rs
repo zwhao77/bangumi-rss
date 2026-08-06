@@ -40,22 +40,22 @@ pub(crate) fn reduce(state: &AppState, event: Event) -> (AppState, Vec<Effect>) 
             library_path,
         } => reduce_episode_completed(state, &infohash, episode, library_path),
         Event::EpisodeHandleFailed { infohash } => reduce_episode_handle_failed(state, &infohash),
-        Event::UserConfirm {
+        Event::UpdateFeed {
             feed_id,
             name,
             season,
             bangumi_info,
             filter,
             reply_tx,
-        } => reduce_user_confirm(state, feed_id, name, season, bangumi_info, filter, reply_tx),
-        Event::ConfirmFeed {
+        } => reduce_update_feed(state, feed_id, name, season, bangumi_info, filter, reply_tx),
+        Event::CreateFeed {
             url,
             name,
             season,
             bangumi_info,
             filter,
             reply_tx,
-        } => reduce_confirm_feed(state, url, name, season, bangumi_info, filter, reply_tx),
+        } => reduce_create_feed(state, url, name, season, bangumi_info, filter, reply_tx),
         Event::ApiListFeeds { reply_tx } => reduce_api_list_feeds(state, reply_tx),
         Event::ApiRemoveFeed { feed_id, reply_tx } => {
             reduce_api_remove_feed(state, feed_id, reply_tx)
@@ -341,8 +341,8 @@ fn reduce_episode_handle_failed(state: &AppState, infohash: &str) -> (AppState, 
     (new_state, vec![])
 }
 
-/// User confirmed the anime name + season via the web UI.
-fn reduce_user_confirm(
+/// API: update an existing feed — filter `None` keeps the current one.
+fn reduce_update_feed(
     state: &AppState,
     feed_id: Uuid,
     name: String,
@@ -380,8 +380,8 @@ fn reduce_user_confirm(
 }
 
 /// API: request RSS preview — logic emits effect, executor replies directly.
-/// API: confirm a feed subscription — create Feed with UUID.
-fn reduce_confirm_feed(
+/// API: create a feed subscription — create Feed with UUID.
+fn reduce_create_feed(
     state: &AppState,
     url: String,
     name: String,
@@ -680,7 +680,7 @@ mod tests {
     fn confirm_feed_produces_new_state() {
         let state = empty_state();
         let (reply_tx, reply_rx) = crossbeam_channel::bounded(1);
-        let (new_state, _effects) = reduce_confirm_feed(
+        let (new_state, _effects) = reduce_create_feed(
             &state,
             "https://example.com/rss".into(),
             "虚构动画".into(),
@@ -860,7 +860,7 @@ mod tests {
     fn confirm_feed_then_rss_tick_includes_it() {
         let state = empty_state();
         let (reply_tx, _reply_rx) = crossbeam_channel::bounded(1);
-        let (state2, _) = reduce_confirm_feed(
+        let (state2, _) = reduce_create_feed(
             &state,
             "https://example.com/rss".into(),
             "虚构动画".into(),
@@ -956,7 +956,7 @@ mod tests {
     fn confirm_feed_rejects_invalid_filter() {
         let state = empty_state();
         let (reply_tx, reply_rx) = crossbeam_channel::bounded(1);
-        let (new_state, effects) = reduce_confirm_feed(
+        let (new_state, effects) = reduce_create_feed(
             &state,
             "https://example.com/rss".into(),
             "虚构动画".into(),
@@ -1006,14 +1006,14 @@ mod tests {
         // Update without a filter → existing filter preserved.
         let (reply_tx, _) = crossbeam_channel::bounded(1);
         let (new_state, effects) =
-            reduce_user_confirm(&state, feed_id, "虚构动画".into(), 1, None, None, reply_tx);
+            reduce_update_feed(&state, feed_id, "虚构动画".into(), 1, None, None, reply_tx);
         assert!(effects.is_empty());
         let feed = new_state.feeds.get(&feed_id).unwrap();
         assert_eq!(feed.filter.exclude, vec!["SAMPLE".to_string()]);
 
         // Update with an explicit filter → replaced.
         let (reply_tx, _) = crossbeam_channel::bounded(1);
-        let (new_state, _) = reduce_user_confirm(
+        let (new_state, _) = reduce_update_feed(
             &state,
             feed_id,
             "虚构动画".into(),

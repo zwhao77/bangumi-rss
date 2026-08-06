@@ -194,7 +194,7 @@ pub fn handle_feed_create(request: &Request, tx: &Sender<Event>) -> Response {
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
 
-    query_api_result(tx, |reply_tx| Event::ConfirmFeed {
+    query_api_result(tx, |reply_tx| Event::CreateFeed {
         url,
         name,
         season,
@@ -223,7 +223,7 @@ pub fn handle_feed_update(id: &str, request: &Request, tx: &Sender<Event>) -> Re
         .get("filter")
         .and_then(|v| serde_json::from_value(v.clone()).ok());
 
-    query_api_result(tx, |reply_tx| Event::UserConfirm {
+    query_api_result(tx, |reply_tx| Event::UpdateFeed {
         feed_id,
         name,
         season,
