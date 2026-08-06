@@ -171,7 +171,11 @@
                 opts.body = JSON.stringify(body);
             }
             const resp = await fetch(url, opts);
-            return resp.json();
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok) {
+                throw new Error(data.detail || data.title || data.message || `HTTP ${resp.status}`);
+            }
+            return data;
         }
 
         // ============ 统一卡片构建函数 ============
@@ -307,9 +311,6 @@
             document.getElementById('result').style.display = 'none';
             try {
                 const result = await api('POST', '/api/feeds/preview', { url });
-                if (!result.success) {
-                    throw new Error(result.message || `HTTP ${resp.status}`);
-                }
                 const data = result.data;
                 window._bangumiInfo = data.bangumi_info || null;
                 window._rssPreview = { group: data.group, latest_episode: data.latest_episode, sample_titles: data.sample_titles, suggested_season: data.suggested_season };
@@ -323,9 +324,7 @@
                         const season = document.getElementById('modalSeason').value.trim() || undefined;
                         const result = await api('POST', '/api/feeds', { url: pendingUrl, name, season, bangumi_info: editedInfo });
                         document.getElementById('result').style.display = 'block';
-                        document.getElementById('result').innerHTML = result.success
-                            ? `<p style="color:green">✅ 订阅成功</p><p class="label">Feed ID: ${result.data}</p>`
-                            : `<p style="color:red">❌ 订阅失败: ${result.message}</p>`;
+                        document.getElementById('result').innerHTML = `<p style="color:green">✅ 订阅成功</p><p class="label">Feed ID: ${result.data}</p>`;
                         loadFeeds();
                         loadDownloads();
                     }
@@ -376,7 +375,7 @@
                             try {
                                 const sr = await fetch('/api/bangumi/search?name=' + encodeURIComponent(f.name));
                                 const sd = await sr.json();
-                                if (sd.success && sd.data) {
+                                if (sr.ok && sd.data) {
                                     openBangumiModal({
                                         title: '📝 补全 Bangumi 信息',
                                         info: sd.data,
@@ -534,7 +533,7 @@
                 try {
                     const resp = await fetch('/api/bangumi/subjects/' + id);
                     const data = await resp.json();
-                    if (data.success && data.data) {
+                    if (resp.ok && data.data) {
                         openBangumiModal({ ...options, info: data.data });
                         return;
                     }
@@ -564,7 +563,7 @@
                     });
                     const data = await resp.json();
                     if (!modal.classList.contains('active')) return;
-                    if (data.success && data.data) {
+                    if (resp.ok && data.data) {
                         openBangumiModal({ ...options, info: data.data });
                         return;
                     }
@@ -646,14 +645,14 @@
             try {
                 const resp = await fetch('/api/health');
                 const data = await resp.json();
-                if (resp.ok && data.success) {
+                if (resp.ok) {
                     dot.style.background = '#22c55e'; // green
                     label.textContent = '下载器已就绪';
                     indicator.title = 'aria2/qBittorrent 连接正常';
                 } else {
                     dot.style.background = '#eab308'; // yellow
-                    label.textContent = data.message || '下载器未连接';
-                    indicator.title = data.message || '下载器异常，请检查配置';
+                    label.textContent = data.detail || data.title || data.message || '下载器未连接';
+                    indicator.title = data.detail || data.title || data.message || '下载器异常，请检查配置';
                 }
             } catch (e) {
                 dot.style.background = '#ef4444'; // red
@@ -670,7 +669,7 @@
             try {
                 const resp = await fetch('/api/notify/test', { method: 'POST' });
                 const data = await resp.json();
-                btn.textContent = data.success ? '✅ 已发送' : '❌ 失败';
+                btn.textContent = resp.ok ? '✅ 已发送' : '❌ 失败';
             } catch (e) {
                 btn.textContent = '❌ 失败';
             }

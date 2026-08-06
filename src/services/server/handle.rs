@@ -11,9 +11,11 @@ use std::time::Duration;
 
 use crate::core::event::Event;
 use crate::services::server::range::{resolve_range, serve_file_range};
-use crate::services::server::utils::{is_valid_rss_url, json_response};
+use crate::services::server::utils::{
+    api_err_response, is_valid_rss_url, json_data, problem_response,
+};
 use crate::traits::FileOps;
-use crate::types::{ApiResult, BangumiInfo, http_code};
+use crate::types::{http_code, problem_type, ApiResult, BangumiInfo};
 
 use crate::utils::preview;
 
@@ -30,31 +32,54 @@ enum HandlerError {
 
 impl From<HandlerError> for Response {
     fn from(e: HandlerError) -> Self {
-        let (code, msg) = match &e {
-            HandlerError::BadRequest(m) => (http_code::BAD_REQUEST, m.clone()),
-            HandlerError::NotFound(m) => (http_code::NOT_FOUND, m.clone()),
-            HandlerError::Timeout => (http_code::SERVICE_UNAVAILABLE, "server busy".into()),
+        let (code, type_uri, title, detail) = match &e {
+            HandlerError::BadRequest(m) => (
+                http_code::BAD_REQUEST,
+                problem_type::INVALID_REQUEST,
+                "Invalid request",
+                m.clone(),
+            ),
+            HandlerError::NotFound(m) => (
+                http_code::NOT_FOUND,
+                problem_type::NOT_FOUND,
+                "Not found",
+                m.clone(),
+            ),
+            HandlerError::Timeout => (
+                http_code::SERVICE_UNAVAILABLE,
+                problem_type::SERVICE_UNAVAILABLE,
+                "Service unavailable",
+                "server busy".into(),
+            ),
             HandlerError::ChannelClosed => {
                 log::error!("logic thread channel closed");
-                (http_code::SERVICE_UNAVAILABLE, "server busy".into())
+                (
+                    http_code::SERVICE_UNAVAILABLE,
+                    problem_type::SERVICE_UNAVAILABLE,
+                    "Service unavailable",
+                    "server busy".into(),
+                )
             }
             HandlerError::Internal { client, detail } => {
                 log::error!("internal error: {detail}");
-                (http_code::INTERNAL, client.clone())
+                (
+                    http_code::INTERNAL,
+                    problem_type::INTERNAL,
+                    "Internal error",
+                    client.clone(),
+                )
             }
         };
-        json_response(code, &msg)
+        problem_response(code, type_uri, title, &detail)
     }
 }
 
 impl<T: serde::Serialize> From<ApiResult<T>> for Response {
     fn from(result: ApiResult<T>) -> Self {
-        let body = serde_json::to_string(&result).unwrap_or_default();
-        let status = match &result {
-            ApiResult::OK { .. } => 200,
-            ApiResult::Err { code, .. } => *code,
-        };
-        Response::from_data("application/json", body).with_status_code(status)
+        match result {
+            ApiResult::OK { value } => json_data(200, &value),
+            ApiResult::Err { code, message } => api_err_response(code, &message),
+        }
     }
 }
 
@@ -110,20 +135,31 @@ fn query_api_result<T: serde::Serialize>(
     tx: &Sender<Event>,
     event: impl FnOnce(Sender<ApiResult<T>>) -> Event,
 ) -> Response {
+    query_api_result_status(tx, event, 200)
+}
+
+/// Like [`query_api_result`], but uses `ok_status` for successful replies
+/// (e.g. `201` for create).
+fn query_api_result_status<T: serde::Serialize>(
+    tx: &Sender<Event>,
+    event: impl FnOnce(Sender<ApiResult<T>>) -> Event,
+    ok_status: u16,
+) -> Response {
     match query_result(tx, event) {
-        Ok(result) => result.into(),
+        Ok(ApiResult::OK { value }) => json_data(ok_status, &value),
+        Ok(ApiResult::Err { code, message }) => api_err_response(code, &message),
         Err(e) => e.into(),
     }
 }
 
-/// Send a fire-and-forget event and immediately return success.
-/// If the channel is broken, return 503.
+/// Send a fire-and-forget event and immediately return `202 Accepted` with
+/// `{"data": null, "message": ...}`. If the channel is broken, return 503.
 fn fire_event(tx: &Sender<Event>, event: Event, msg: &str) -> Response {
     match tx.send(event) {
-        Ok(()) => Response::from_data(
-            "application/json",
-            serde_json::json!({"success": true, "message": msg}).to_string(),
-        ),
+        Ok(()) => {
+            let body = serde_json::json!({"data": null, "message": msg}).to_string();
+            Response::from_data("application/json", body).with_status_code(202)
+        }
         Err(_) => HandlerError::ChannelClosed.into(),
     }
 }
@@ -194,14 +230,18 @@ pub fn handle_feed_create(request: &Request, tx: &Sender<Event>) -> Response {
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
 
-    query_api_result(tx, |reply_tx| Event::CreateFeed {
-        url,
-        name,
-        season,
-        bangumi_info,
-        filter,
-        reply_tx,
-    })
+    query_api_result_status(
+        tx,
+        |reply_tx| Event::CreateFeed {
+            url,
+            name,
+            season,
+            bangumi_info,
+            filter,
+            reply_tx,
+        },
+        201,
+    )
 }
 
 pub fn handle_feed_update(id: &str, request: &Request, tx: &Sender<Event>) -> Response {
@@ -346,7 +386,7 @@ pub fn handle_file_stream(
     let record = match result {
         ApiResult::OK { value } => value,
         ApiResult::Err { code, message } => {
-            return json_response(code, &message);
+            return api_err_response(code, &message);
         }
     };
 
@@ -435,7 +475,7 @@ mod tests {
     fn test_fire_event_success() {
         let (tx, rx) = crossbeam_channel::bounded::<Event>(1);
         let resp = fire_event(&tx, Event::PollDownloader, "test msg");
-        assert_eq!(resp.status_code, 200);
+        assert_eq!(resp.status_code, 202);
         assert!(rx.try_recv().is_ok());
     }
 
@@ -452,7 +492,7 @@ mod tests {
     fn handle_poll_success() {
         let (tx, rx) = crossbeam_channel::bounded::<Event>(1);
         let resp = handle_downloads_poll(&tx);
-        assert_eq!(resp.status_code, 200);
+        assert_eq!(resp.status_code, 202);
         assert!(rx.try_recv().is_ok());
     }
 
@@ -460,7 +500,7 @@ mod tests {
     fn handle_refresh_success() {
         let (tx, rx) = crossbeam_channel::bounded::<Event>(1);
         let resp = handle_downloads_refresh(&tx);
-        assert_eq!(resp.status_code, 200);
+        assert_eq!(resp.status_code, 202);
         assert!(matches!(rx.try_recv(), Ok(Event::RefreshDownloads)));
     }
 

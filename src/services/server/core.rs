@@ -1,14 +1,15 @@
 // ── Server entry point ──
 use crossbeam_channel::Sender;
 use rouille::router;
-use rouille::{Request, Response, ResponseBody, Server};
+use rouille::{Request, Response, Server};
 use std::sync::Arc;
 
 use crate::core::event::Event;
 use crate::services::server::ServerConfig;
 use crate::services::server::handle::*;
-use crate::services::server::utils::check_auth;
+use crate::services::server::utils::{check_auth, method_not_allowed_response, problem_response};
 use crate::traits::FileOps;
+use crate::types::{http_code, problem_type};
 
 pub fn start_server(
     event_tx: Sender<Event>,
@@ -22,26 +23,28 @@ pub fn start_server(
     let server = Server::new(&addr, move |request| {
         // ── Auth check (if credentials configured) ──
         if !auth_username.is_empty() && !check_auth(request, &auth_username, &auth_password) {
-            let response = Response {
-                status_code: 401,
-                headers: vec![(
-                    "WWW-Authenticate".into(),
-                    "Basic realm=\"bangumi-rss\"".into(),
-                )],
-                data: ResponseBody::from_string("401 Unauthorized"),
-                upgrade: None,
-            };
-            log::debug!(
-                "{} {} -> 401 (content-type: text/plain)",
-                request.method(),
-                request.url()
+            let mut response = problem_response(
+                http_code::UNAUTHORIZED,
+                problem_type::UNAUTHORIZED,
+                "Unauthorized",
+                "missing or invalid credentials",
             );
+            response.headers.push((
+                "WWW-Authenticate".into(),
+                "Basic realm=\"bangumi-rss\"".into(),
+            ));
+            log::debug!("{} {} -> 401", request.method(), request.url());
             return response;
         }
 
         let method = request.method().to_uppercase();
         let url = request.url().to_string();
         let start_time = std::time::Instant::now();
+
+        // ── 405 Method Not Allowed (rouille's router can't express it) ──
+        if let Some(response) = method_not_allowed_response(&method, &url) {
+            return response;
+        }
 
         let response = handle_request(request, &event_tx, &*fs);
 
@@ -122,6 +125,11 @@ fn handle_request(
         // ═══ /api/notify/test ═══
         (POST) (/api/notify/test) => { handle_notify_test(tx) },
 
-        _ => Response::empty_404(),
+        _ => problem_response(
+            http_code::NOT_FOUND,
+            problem_type::NOT_FOUND,
+            "Not found",
+            "route not found",
+        ),
     )
 }

@@ -217,6 +217,8 @@ fits, but the registry below is preferred.
 | `urn:bangumi-rss:problems:unauthorized` | 401 | Unauthorized |
 | `urn:bangumi-rss:problems:not-found` | 404 | Not found |
 | `urn:bangumi-rss:problems:method-not-allowed` | 405 | Method not allowed |
+| `urn:bangumi-rss:problems:range-not-satisfiable` | 416 | Range Not Satisfiable |
+| `urn:bangumi-rss:problems:internal` | 500 | Internal error |
 | `urn:bangumi-rss:problems:upstream-error` | 500 | Upstream error |
 | `urn:bangumi-rss:problems:service-unavailable` | 503 | Service unavailable |
 

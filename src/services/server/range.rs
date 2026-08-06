@@ -6,8 +6,9 @@
 
 use rouille::{Request, Response, ResponseBody};
 
+use crate::services::server::utils::problem_response;
 use crate::types::FileStream;
-use crate::types::http_code;
+use crate::types::{http_code, problem_type};
 
 /// Parse the `Range` header from a `Request` and return the byte range to serve.
 ///
@@ -63,8 +64,10 @@ pub fn serve_file_range(
                 Ok(r) => r,
                 Err(_) => {
                     log::error!("seek failed: {file_size} bytes, {content_type}");
-                    return crate::services::server::utils::json_response(
+                    return problem_response(
                         http_code::INTERNAL,
+                        problem_type::INTERNAL,
+                        "Internal error",
                         "internal server error",
                     );
                 }
@@ -89,8 +92,10 @@ pub fn serve_file_range(
                 Ok(r) => r,
                 Err(_) => {
                     log::error!("seek failed: bytes {start}-{end}/{file_size}, {content_type}");
-                    return crate::services::server::utils::json_response(
+                    return problem_response(
                         http_code::INTERNAL,
+                        problem_type::INTERNAL,
+                        "Internal error",
                         "internal server error",
                     );
                 }
@@ -116,15 +121,17 @@ pub fn serve_file_range(
 
 /// 416 Range Not Satisfiable.
 fn build_416(file_size: u64) -> Response {
-    Response {
-        status_code: 416,
-        headers: vec![(
-            "Content-Range".into(),
-            format!("bytes */{file_size}").into(),
-        )],
-        data: ResponseBody::empty(),
-        upgrade: None,
-    }
+    let mut resp = problem_response(
+        http_code::RANGE_NOT_SATISFIABLE,
+        problem_type::RANGE_NOT_SATISFIABLE,
+        "Range Not Satisfiable",
+        &format!("requested range is not satisfiable (file size {file_size})"),
+    );
+    resp.headers.push((
+        "Content-Range".into(),
+        format!("bytes */{file_size}").into(),
+    ));
+    resp
 }
 
 /// Parse a range string like `"0-499"` or `"-500"` into `(start, end)` inclusive.
@@ -255,11 +262,10 @@ mod tests {
         let stream = FileStream::new(std::io::Cursor::new(data), 11);
         let resp = serve_file_range(stream, 11, "text/plain", Some((0, 4)));
         assert_eq!(resp.status_code, 206);
-        assert!(
-            resp.headers
-                .iter()
-                .any(|(k, v)| k == "Content-Range" && v == "bytes 0-4/11")
-        );
+        assert!(resp
+            .headers
+            .iter()
+            .any(|(k, v)| k == "Content-Range" && v == "bytes 0-4/11"));
     }
 
     #[test]

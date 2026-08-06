@@ -1,13 +1,13 @@
 # AGENTS.md — bangumi-rss
 
-> Anime RSS auto-downloader. Single Rust binary, ~5 MB memory, 109 tests (server 25, notify 14, logic 16, tokenizer 8, filter 9, handler 8, rss 6, config 6, bangumi 5, dl_command 5, executor 3, fetch_pool 2, timer 1, aria2 1).
+> Anime RSS auto-downloader. Single Rust binary, ~5 MB memory, 111 tests (server 27, notify 14, logic 16, tokenizer 8, filter 9, handler 8, rss 6, config 6, bangumi 5, dl_command 5, executor 3, fetch_pool 2, timer 1, aria2 1).
 
 ## Build & Run
 
 ```bash
 cargo build                  # debug build
 cargo build --release        # release build
-cargo test                   # run all tests (109)
+cargo test                   # run all tests (111)
 cargo run                    # run directly (env vars below)
 ```
 
@@ -75,7 +75,7 @@ Event Sources (timers, server)
 | `services/timer.rs` | Zero‑dependency periodic timer manager with graceful shutdown (1 test) |
 | `services/executor.rs` | `EffectExecutor` — I/O boundary, delegates effects to services (3 tests) |
 | `services/dl_command.rs` | `DlThread` — dedicated single-threaded downloader scheduler (5 tests) |
-| `services/server/` | rouille HTTP API: `core.rs` (entry), `handle.rs` (routes), `range.rs` (Range support), `utils.rs` (25 tests) |
+| `services/server/` | rouille HTTP API: `core.rs` (entry), `handle.rs` (routes), `range.rs` (Range support), `utils.rs` (27 tests) |
 | `services/fetch.rs` | RSS fetch + `.torrent` download (worker jobs) |
 | `services/fetch_pool.rs` | Bounded worker pool (2 tests) |
 | `services/fs.rs` | `RealFileSystem` — thin `std::fs` wrapper |
@@ -208,7 +208,7 @@ Uses the **legacy (no-auth) API** via `services/bangumi.rs`:
 - **Error handling**: `anyhow::Result` throughout, `?` operator
 - **Channels**: `crossbeam_channel::bounded(256)` for all thread communication
 - **Services behind traits**: All I/O is behind `Arc<dyn Trait>` for testability
-- **Testing**: 109 tests total — server (25), notify (14), logic (16), tokenizer (8), filter (9), handler (8), rss (6), config (6), bangumi (5), dl_command (5), executor (3), fetch_pool (2), timer (1), aria2 (1)
+- **Testing**: 111 tests total — server (27), notify (14), logic (16), tokenizer (8), filter (9), handler (8), rss (6), config (6), bangumi (5), dl_command (5), executor (3), fetch_pool (2), timer (1), aria2 (1)
 - **No async runtime** — everything is sync with OS threads and channels
 - **Single‑threaded services**: `Aria2Downloader` is only accessed from executor thread
 - **Timer**: `TimerManager` — `add(interval, callback → bool)`, returns `false` to self‑remove, graceful shutdown via `AtomicBool`
