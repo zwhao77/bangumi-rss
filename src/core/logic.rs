@@ -628,7 +628,7 @@ fn reduce_api_get_episode(
         None => {
             let _ = reply_tx.send(ApiResult::Err {
                 code: http_code::NOT_FOUND,
-                message: "not found".into(),
+                message: format!("episode {infohash} not found"),
             });
         }
     }
